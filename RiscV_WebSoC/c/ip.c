@@ -147,3 +147,31 @@ void ip_header_update(uint32 src_ip, uint16 total_len) {
         }
     }
 }
+/*
+ * Ping 应答完整调用链（ICMP Echo Request → Echo Reply）
+ *
+ *  [对端发来 ping 请求]
+ *         │
+ *         ▼
+ *    eth_proc()                       // 以太帧解析（eth.c）
+ *      ├─ 读以太类型 = 0x0800
+ *      ├─ 验证目的 MAC 是本机
+ *      ├─ 预写应答 MAC 头到 TX FIFO
+ *      └─ 返回 IP_PROC
+ *         │
+ *         ▼
+ *    ip_process(frame, len)           // IP 层处理（ip.c）
+ *      ├─ 验证版本、头长、校验和
+ *      ├─ 验证目的 IP 是本机
+ *      ├─ 缓存发送方 IP → g_ip_sender
+ *      └─ 协议号为 ICMP → 调用 icmp_reply()
+ *         │
+ *         ▼
+ *    icmp_reply()                     // ICMP 应答构造（icmp.c）
+ *      ├─ ip_header_update()          // 交换 IP 地址，写入 TX FIFO（新 IP 头）
+ *      ├─ 写 ICMP Type = 0, Code = 0
+ *      ├─ 从 RX FIFO 拷贝 ID / Seq / Data 到 TX FIFO
+ *      ├─ icmp_body_checksum()        // 计算 ICMP 校验和
+ *      ├─ 补零到 64 字节
+ *      └─ LCPU_WR_PUSH_PACKET         // 推送完整应答帧
+ */

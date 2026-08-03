@@ -16,6 +16,25 @@
  * ICMP 校验和覆盖范围：ICMP 头 + 数据（不含 IP 伪首部）
  */
 
+
+/*
+ * Ping 应答数据流（RX FIFO → 处理 → TX FIFO 推送）
+ *
+ *   RX FIFO 收到对端发来的帧
+ *          │
+ *          ▼
+ *     eth_proc()          ← 从 RX 读以太类型、验 MAC，往 TX FIFO 写 MAC 头
+ *          │
+ *          ▼
+ *     ip_process()        ← 从帧缓冲区验证 IP 头，缓存发送方 IP
+ *          │
+ *          ▼
+ *     icmp_reply()        ← 往 TX FIFO 写入 IP 头 + ICMP 内容，然后推送
+ */
+
+
+
+ 
 #include "inc/lcpu_general.h"
 #include "inc/comlib.h"
 #include "inc/ip.h"
