@@ -40,10 +40,10 @@ void program_main() {
     while (dly--) { asm volatile("nop"); }
     LCPU_SET_LED(0x00);
 
-    uint32 led_val = 0x01;   // 心跳灯初始值：bit0
+    uint32 led_val = 0x01;   // 流水灯初始位置：LED0
 
     while (1) {
-        /* ---- LED 心跳：每 ~1s 切换一次（rdcycle 硬件定时）---- */
+        /* ---- LED 流水灯：每 ~1s 移一位（rdcycle 硬件定时）---- */
         {
             static uint32 last_toggle = 0;
             uint32 now = LCPU_LOCAL_TIME_L();
