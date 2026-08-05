@@ -42,8 +42,8 @@ void program_main() {
     while (dly--) { asm volatile("nop"); }
     LCPU_SET_LED(0x00);
 
-    /* ---- TCP 发送发动机测试：发送一次 SYN+ACK（Wireshark 抓包验证）---- */
-    tcp_test_send_syn_ack();
+    /* ---- TCP 初始化 ---- */
+    tcp_init();
 
     uint32 led_val = 0x01;   // 流水灯初始位置：LED0
 
@@ -88,10 +88,9 @@ void program_main() {
             if (iptype == ICMP_PROC) {
                 // ICMP Echo Request → 构造 Echo Reply（内部自动 PUSH）
                 icmp_reply();
-                // 同时触发 TCP SYN+ACK 测试（跟在 ICMP 后面，TX 路径已验证通畅）
-                tcp_test_send_syn_ack();
             } else if (iptype == TCP_PROC) {
-                // TODO: TCP 包 → tcp_packet_handler()（后续步骤实现）
+                // TCP 包 → 三次握手状态机
+                tcp_handler();
             }
         }
 

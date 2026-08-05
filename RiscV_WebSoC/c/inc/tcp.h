@@ -1,7 +1,5 @@
 /*
  * tcp.h — TCP 协议头文件
- * ========================
- * 第 1 步：只定义验证所需的常量和测试函数
  */
 
 #ifndef TCP_H_
@@ -17,7 +15,8 @@
 #define TCP_FLAG_ACK  0x10u
 #define TCP_FLAG_URG  0x20u
 
-/* 第 1 步验证函数：发送一个硬编码 SYN+ACK 包 */
-void tcp_test_send_syn_ack(void);
+/* 初始化 + 主处理函数 */
+void tcp_init(void);
+void tcp_handler(void);
 
 #endif
