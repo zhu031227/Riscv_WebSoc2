@@ -384,16 +384,40 @@ module altsyncram #(
     parameter outdata_reg_a = "UNREGISTERED",
     parameter outdata_reg_b = "UNREGISTERED",
     parameter power_up_high = "OFF",
-    parameter intended_device_family = "Cyclone V"
+    parameter power_up_uninitialized = "FALSE",
+    parameter intended_device_family = "Cyclone V",
+    parameter width_byteena_a = 1,
+    parameter width_byteena_b = 1,
+    parameter clock_enable_input_a  = "NORMAL",
+    parameter clock_enable_input_b  = "NORMAL",
+    parameter clock_enable_output_a = "NORMAL",
+    parameter clock_enable_output_b = "NORMAL",
+    parameter read_during_write_mode_port_a = "OLD_DATA",
+    parameter read_during_write_mode_port_b = "OLD_DATA",
+    parameter read_during_write_mode_mixed_ports = "OLD_DATA",
+    parameter ram_block_type = "M9K"
 ) (
     input  [width_a-1:0] data_a,
     input  [widthad_a-1:0] address_a,
     input  wren_a,
     output [width_a-1:0] q_a,
     input  clock0,
+    input  clocken0,
+    input  clocken1,
+    input  clocken2,
+    input  clocken3,
+    input  aclr0,
+    input  aclr1,
+    input  addressstall_a,
+    input  addressstall_b,
+    input  [width_byteena_a-1:0] byteena_a,
     input  [width_b-1:0] data_b,
     input  [widthad_b-1:0] address_b,
     input  wren_b,
+    input  [width_byteena_b-1:0] byteena_b,
+    input  rden_a,
+    input  rden_b,
+    output [31:0] eccstatus,
     output [width_b-1:0] q_b,
     input  clock1
 );
@@ -410,6 +434,7 @@ module altsyncram #(
 
     assign q_a = q_a_reg;
     assign q_b = q_b_reg;
+    assign eccstatus = 0;
 
     always @(posedge clock0) begin
         if (wren_a) mem[address_a] <= data_a;

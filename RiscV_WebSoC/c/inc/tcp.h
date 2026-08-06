@@ -19,4 +19,8 @@
 void tcp_init(void);
 void tcp_handler(void);
 
+#ifdef SIM_FAST
+void tcp_self_test(void);
+#endif
+
 #endif

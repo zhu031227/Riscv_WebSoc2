@@ -100,3 +100,4 @@ usage_statistics_webtalk.*
 *.bit
 *.mmi
 *.xci
+obj_dir/

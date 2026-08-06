@@ -1,0 +1,42 @@
+# Verilator TCP 握手仿真
+# 用法: make -f Makefile_verilator
+
+TOP   = tb_tcp_handshake
+RTL   = ../rtl
+SIM   = .
+VROOT = obj_dir
+
+# RTL files (all .v except testbenches and a.out)
+RTL_FILES = $(wildcard $(RTL)/*.v)
+
+# Simulation stubs (replace Xilinx IPs)
+SIM_FILES = $(SIM)/vendor_stubs.v $(SIM)/xpm_memory_tdpram_sim.v $(SIM)/lcpu_bfm.sv
+
+# Testbench
+TB_FILE  = $(SIM)/tb_tcp_handshake.v
+TB_CPP   = $(SIM)/tb_tcp_handshake.cpp
+
+VERILATOR = verilator
+
+.PHONY: all clean run wave
+
+all: $(VROOT)/V$(TOP)
+	$(MAKE) -C $(VROOT) -f V$(TOP).mk
+
+$(VROOT)/V$(TOP): $(TB_FILE) $(TB_CPP) $(RTL_FILES) $(SIM_FILES)
+	$(VERILATOR) --cc --build -j --trace \
+		-I$(RTL) -I$(SIM) \
+		-Wno-fatal -Wno-WIDTH -Wno-LITENDIAN -Wno-COMBDLY -Wno-UNOPTFLAT -Wno-PINMISSING \
+		--timing --public-flat-rw \
+		$(RTL_FILES) $(SIM_FILES) $(TB_FILE) \
+		--top-module $(TOP) --exe $(TB_CPP) \
+		-CFLAGS "-O2 -DVL_VALUE_STRING_MAX_WORDS=512"
+
+run: all
+	./$(VROOT)/V$(TOP)
+
+wave: run
+	gtkwave tb_tcp_handshake.vcd &
+
+clean:
+	rm -rf $(VROOT) tb_tcp_handshake.vcd

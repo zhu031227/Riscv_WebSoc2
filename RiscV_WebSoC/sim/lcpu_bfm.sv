@@ -1,8 +1,8 @@
 `timescale 1ns / 1ps
 
 module lcpu_bfm #(
-    parameter read_time_out = 2000,
-    parameter delay_time = 1000,
+    parameter read_time_out = 200,  // 加速仿真 (原值 2000)
+    parameter delay_time = 10,  // 加速仿真 (原值 1000)
     parameter string script_file = "../ref/script.tcl") (
     input  logic        clk,
     input  logic        reset_l,
@@ -16,7 +16,7 @@ module lcpu_bfm #(
 );
 
     integer file;
-    reg [8191:0] command;
+    reg [1023:0] command;  // TCL lines are ~40 chars, 1024 bits is plenty
     int temp_addr, temp_data, dly_t;
     int have_expect = 0;
     int expect_data;

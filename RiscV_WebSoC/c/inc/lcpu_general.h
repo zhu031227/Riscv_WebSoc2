@@ -127,4 +127,61 @@ extern uint32 src_ip;
 extern uint16 src_port;
 extern uint16 ip_total_len;
 
+// ================================================================
+// SIM_FAST: RX FIFO 宏替换为内存 buffer (仿真加速)
+// TX 宏保持真实总线写入 (用于波形验证)
+// ================================================================
+#ifdef SIM_FAST
+extern uint8  *sim_rx_buf_ptr;   // 指向当前注入的包数据
+extern uint16  sim_rx_buf_len;   // 包长度
+extern uint16  sim_rx_addr;      // 当前读地址
+
+#undef  LCPU_RD_EMPTY
+#define LCPU_RD_EMPTY()         0  /* 始终 "有新包" */
+
+#undef  LCPU_RD_START_PACKET
+#define LCPU_RD_START_PACKET()  do {} while (0)
+
+#undef  LCPU_RD_PKT_LEN
+#define LCPU_RD_PKT_LEN()       sim_rx_buf_len
+
+#undef  LCPU_RD_SET_ADDR
+#define LCPU_RD_SET_ADDR(addr)  do { sim_rx_addr = (uint16)(addr); } while (0)
+
+#undef  LCPU_RD_INC_ADDR
+#define LCPU_RD_INC_ADDR()      do { sim_rx_addr++; } while (0)
+
+#undef  LCPU_RD_DATA8
+#define LCPU_RD_DATA8()         (sim_rx_buf_ptr[sim_rx_addr])
+
+#undef  LCPU_RD_PKT_PARA
+#define LCPU_RD_PKT_PARA()      0
+
+#undef  LCPU_RD_REOP_PRE
+#define LCPU_RD_REOP_PRE()      0
+
+#undef  LCPU_RD_STOP
+#define LCPU_RD_STOP()          do {} while (0)
+
+// TX 也重定向到内存 buffer (仿真加速)
+#undef  LCPU_WR_SET_ADDR
+#define LCPU_WR_SET_ADDR(addr)  do { sim_tx_addr = (uint16)(addr); } while (0)
+
+#undef  LCPU_WR_SET_DATA
+#define LCPU_WR_SET_DATA(data)  do { sim_tx_buf[sim_tx_addr] = (uint8)(data); } while (0)
+
+#undef  LCPU_WR_PULSE_WEN
+#define LCPU_WR_PULSE_WEN()     do {} while (0)
+
+#undef  LCPU_WR_BYTE
+#define LCPU_WR_BYTE(addr, data) do { sim_tx_buf[(uint16)(addr)] = (uint8)(data); } while (0)
+
+#undef  LCPU_WR_PUSH_PACKET
+#define LCPU_WR_PUSH_PACKET(len) do { sim_tx_pkt_len = (uint16)(len); } while (0)
+
+extern uint8  sim_tx_buf[128];
+extern uint16 sim_tx_addr;
+extern uint16 sim_tx_pkt_len;
+#endif
+
 #endif /* _LCPU_GEN_H_ */

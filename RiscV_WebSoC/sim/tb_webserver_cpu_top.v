@@ -97,9 +97,8 @@ module tb_webserver_cpu_top;
 
   // 超时 (100ms, 固件变大需更长)
   initial begin
-    #100_000_000;
-    $display("[%0t] 仿真超时", $time);
-    $display("  LED = %b", led_o);
+    #1000_000_000;  // 1s 超时 (BFM 加载 ~250ms + CPU 自测)
+    $display("[%0t] TIMEOUT LED=%b", $time, led_o);
     $finish;
   end
 
@@ -123,13 +122,18 @@ module tb_webserver_cpu_top;
              $time, riscv_clk, riscv_reset, riscv_pram_wr, riscv_req, led_o);
   end
 
-  // LED 变化监控
+  // LED 变化监控 + 自测通过自动结束
   reg [3:0] prev_led;
   initial prev_led = 4'hf;
   always @(posedge clk_50m_in) begin
     if (led_o !== prev_led) begin
-      $display("[%0t] LED: %b → %b  (bus_addr=0x%h bus_req=%b)", $time, prev_led, led_o, u_dut.bus_address, u_dut.bus_req);
+      $display("[%0t] LED: %b -> %b", $time, prev_led, led_o);
       prev_led <= led_o;
+      if (led_o == 4'b1111) begin
+        $display("[%0t] PASS: TCP 自测完成 LED=0x0F", $time);
+        #10000;
+        $finish;
+      end
     end
   end
 
