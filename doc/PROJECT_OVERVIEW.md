@@ -4,15 +4,15 @@
 
 基于 XC7A35T FPGA + PicoRV32 RISC-V 软核 + 自定义 FIFO 总线的轻量级 TCP/IP 协议栈，裸机 C 语言实现。
 
-| 组件 | 描述 |
-|------|------|
-| FPGA | Xilinx XC7A35T-FGG484-2 |
-| RISC-V 软核 | PicoRV32 (rv32ic, 50MHz) |
-| 网络接口 | RGMII → GMII → MAC (100Mbps) |
-| 硬件 FIFO | RX FIFO 映射 `0x80006000`, TX FIFO 映射 `0x80006100` |
-| LED | 4 个, 映射 `0x80000040` |
-| FPGA IP | 169.254.1.1 |
-| FPGA MAC | 00:00:01:02:04:05 |
+| 组件        | 描述                                                    |
+| ----------- | ------------------------------------------------------- |
+| FPGA        | Xilinx XC7A35T-FGG484-2                                 |
+| RISC-V 软核 | PicoRV32 (rv32ic, 50MHz)                                |
+| 网络接口    | RGMII → GMII → MAC (100Mbps)                          |
+| 硬件 FIFO   | RX FIFO 映射`0x80006000`, TX FIFO 映射 `0x80006100` |
+| LED         | 4 个, 映射`0x80000040`                                |
+| FPGA IP     | 169.254.1.1                                             |
+| FPGA MAC    | 00:00:01:02:04:05                                       |
 
 ## 二、软件架构
 
@@ -27,40 +27,41 @@ main.c (主循环)
 ```
 
 **关键设计原则**：
+
 - RX/TX FIFO 直接读写，不使用内存缓冲区
 - RX 读使能 (REN) 永远不关
 - 每帧 POP 两次（头部取出 + 尾部推进）
 
 ## 三、文件清单
 
-| 文件 | 说明 | 状态 |
-|------|------|------|
-| `c/inc/lcpu_general.h` | 寄存器映射 + 网络常量 + 定时器宏 | ✅ |
-| `c/comlib.c` | 校验和累加 (cks_sum_cal) | ✅ |
-| `c/eth.c` | `eth_proc()` 以太帧解析 | ✅ |
-| `c/arp.c` | `arp_reply()` ARP 应答 | ✅ |
-| `c/ip.c` | `ip_proc()` + `ip_header_update()` | ✅ |
-| `c/icmp.c` | `icmp_reply()` Ping 应答 | ✅ |
-| `c/tcp.c` | TCP 状态机 (7状态) + 发送/接收/保洁 | ✅ |
-| `c/main.c` | 主循环调度 + LED 流水灯 | ✅ |
-| `tcp_led_client.py` | PC 端 TCP LED 控制客户端 | ✅ |
-| HTTP 服务器 | 待实现 | ⏳ |
+| 文件                     | 说明                                   | 状态 |
+| ------------------------ | -------------------------------------- | ---- |
+| `c/inc/lcpu_general.h` | 寄存器映射 + 网络常量 + 定时器宏       | ✅   |
+| `c/comlib.c`           | 校验和累加 (cks_sum_cal)               | ✅   |
+| `c/eth.c`              | `eth_proc()` 以太帧解析              | ✅   |
+| `c/arp.c`              | `arp_reply()` ARP 应答               | ✅   |
+| `c/ip.c`               | `ip_proc()` + `ip_header_update()` | ✅   |
+| `c/icmp.c`             | `icmp_reply()` Ping 应答             | ✅   |
+| `c/tcp.c`              | TCP 状态机 (7状态) + 发送/接收/保洁    | ✅   |
+| `c/main.c`             | 主循环调度 + LED 流水灯                | ✅   |
+| `tcp_led_client.py`    | PC 端 TCP LED 控制客户端               | ✅   |
+| HTTP 服务器              | 待实现                                 | ⏳   |
 
 ## 四、协议栈完成状态
 
-| 协议/功能 | 状态 | 验证命令 |
-|-----------|------|----------|
-| ARP + IP + ICMP (Ping) | ✅ | `ping 169.254.1.1` |
-| TCP 三次握手 | ✅ | `nc -vz 169.254.1.1 7` |
-| TCP 数据收发 (Echo) | ✅ | `nc 169.254.1.1 7` 输入回显 |
-| TCP LED 控制 | ✅ | `python3 tcp_led_client.py 0x05` |
-| TCP 四次挥手 (主动) | ✅ | `nc` 退出后 Wireshark 抓 FIN/ACK |
-| TCP 被动关闭 | ✅ | 对方先发 FIN |
-| TCP RST 处理 | ✅ | 收到 RST 直接重置 |
-| TCP 超时重传 | ✅ | SYN_RECEIVED 下每 3s 重发 SYN+ACK (最多3次) |
-| TCP 空闲保活 | ✅ | 6s 无活动发 RST 踢连接 |
-| TCP TIME_WAIT 回收 | ✅ | 主动关闭后 2s 自动释放 |
-| HTTP 服务器 | ⏳ | 浏览器访问 `http://169.254.1.1` |
+| 协议/功能              | 状态 | 验证命令                                    |
+| ---------------------- | ---- | ------------------------------------------- |
+| ARP + IP + ICMP (Ping) | ✅   | `ping 169.254.1.1`                        |
+| TCP 三次握手           | ✅   | `nc -vz 169.254.1.1 7`                    |
+| TCP 数据收发 (Echo)    | ✅   | `nc 169.254.1.1 7` 输入回显               |
+| TCP LED 控制           | ✅   | `python3 tcp_led_client.py 0x05`          |
+| TCP 四次挥手 (主动)    | ✅   | `nc` 退出后 Wireshark 抓 FIN/ACK          |
+| TCP 被动关闭           | ✅   | 对方先发 FIN                                |
+| TCP RST 处理           | ✅   | 收到 RST 直接重置                           |
+| TCP 超时重传           | ✅   | SYN_RECEIVED 下每 3s 重发 SYN+ACK (最多3次) |
+| TCP 空闲保活           | ✅   | 6s 无活动发 RST 踢连接                      |
+| TCP TIME_WAIT 回收     | ✅   | 主动关闭后 2s 自动释放                      |
+| HTTP 服务器            | ⏳   | 浏览器访问`http://169.254.1.1`            |
 
 ## 五、分阶段验证方法
 
@@ -87,11 +88,13 @@ ping 169.254.1.1
 **LED 状态**: 流水灯 (0x01 → 0x02 → 0x04 → 0x08 循环)
 
 **Wireshark 过滤**:
+
 ```
 arp or icmp
 ```
 
 **检查点**:
+
 - ARP Request → ARP Reply (MAC 00:00:01:02:04:05)
 - ICMP Echo Request → ICMP Echo Reply
 
@@ -106,11 +109,13 @@ nc -vz 169.254.1.1 7
 **LED 状态**: 收到 SYN 时 LED2 闪, 握手完成 LED 全亮 (0x0F)
 
 **Wireshark 过滤**:
+
 ```
 tcp.port == 7
 ```
 
 **检查点**:
+
 - `[S]` SYN → `[S.]` SYN+ACK → `[.]` ACK
 - SYN+ACK 的 flags = 0x12 (SYN|ACK)
 - 源端口 = FPGA端口(7), 目的端口 = PC随机端口
@@ -130,6 +135,7 @@ python3 ~/work/FPGA_Prj/RiscV_webSoC2/tcp_led_client.py 0x05
 ```
 
 **检查点**:
+
 - 0x00 = 全灭
 - 0x0F = 全亮
 - 0x05 = LED0 + LED2
@@ -142,6 +148,7 @@ python3 ~/work/FPGA_Prj/RiscV_webSoC2/tcp_led_client.py 0x05
 **被动关闭**: 对方先发 FIN → FPGA 回 ACK → 发 FIN → 进入 LAST_ACK
 
 **Wireshark 过滤**:
+
 ```
 tcp.port == 7 and (tcp.flags.fin == 1 or tcp.flags.reset == 1)
 ```
@@ -156,32 +163,12 @@ tcp.port == 7 and (tcp.flags.fin == 1 or tcp.flags.reset == 1)
 
 ## 六、调试工具速查
 
-| 工具 | 用途 |
-|------|------|
-| `ping 169.254.1.1` | 验证 ARP+IP+ICMP 全链路 |
-| `nc -vz 169.254.1.1 7` | 验证 TCP 三次握手 |
-| `nc 169.254.1.1 7` | 交互式 TCP Echo 测试 |
-| `tcpdump -i eno1 -n tcp port 7` | 抓 TCP 包 |
-| `tcpdump -i eno1 -n arp or icmp` | 抓 ARP/ICMP 包 |
-| `python3 tcp_led_client.py 0x05` | TCP 控制 LED |
-| `gtkwave tb_webserver_cpu_top.vcd` | 仿真波形 |
-
-## 七、向 Claude 提问模板
-
-```
-【项目背景】
-FPGA XC7A35T + PicoRV32 软核, 裸机 C 协议栈,
-FIFO 直写架构, IP=169.254.1.1, 监听端口=7
-
-【当前问题】
-[描述具体问题和现象]
-
-【期望结果】
-[预期行为]
-
-【实际现象】
-[LED状态 / 抓包结果 / 错误信息]
-
-【相关代码】
-[粘贴关键代码段]
-```
+| 工具                                 | 用途                    |
+| ------------------------------------ | ----------------------- |
+| `ping 169.254.1.1`                 | 验证 ARP+IP+ICMP 全链路 |
+| `nc -vz 169.254.1.1 7`             | 验证 TCP 三次握手       |
+| `nc 169.254.1.1 7`                 | 交互式 TCP Echo 测试    |
+| `tcpdump -i eno1 -n tcp port 7`    | 抓 TCP 包               |
+| `tcpdump -i eno1 -n arp or icmp`   | 抓 ARP/ICMP 包          |
+| `python3 tcp_led_client.py 0x05`   | TCP 控制 LED            |
+| `gtkwave tb_webserver_cpu_top.vcd` | 仿真波形                |
