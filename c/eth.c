@@ -22,12 +22,12 @@ uint16 eth_proc()
     uint16 eth_type = 0;
 
     /* ---- 读取以太类型（字节 12-13），大端 ---- */
-    LCPU_RD_SET_ADDR(OFF_ETH_TYPE);
-    fifo_data = LCPU_RD_DATA8();
+    LCPU_RD_SET_ADDR(OFF_ETH_TYPE);       // 读指针指向字节 12
+    fifo_data = LCPU_RD_DATA8();          // 读高字节
     eth_type = (uint16)fifo_data << 8;
-    LCPU_RD_SET_ADDR(OFF_ETH_TYPE + 1);
-    fifo_data = LCPU_RD_DATA8();
-    eth_type = eth_type | fifo_data;
+    LCPU_RD_SET_ADDR(OFF_ETH_TYPE + 1);   // 读指针指向字节 13
+    fifo_data = LCPU_RD_DATA8();          // 读低字节
+    eth_type = eth_type | fifo_data;      // 拼成完整的 2 字节类型码
 
     if (eth_type == ETH_TYPE_ARP) {
         // ARP 包：直接返回，MAC 处理留给 arp_reply()
