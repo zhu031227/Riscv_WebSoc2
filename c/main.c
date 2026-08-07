@@ -48,6 +48,9 @@ void program_main() {
     uint32 led_val = 0x01;   // 流水灯初始位置：LED0
 
     while (1) {
+        /* ---- TCP 保洁定时器 ---- */
+        tcp_periodic_check();
+
         /* ---- LED 流水灯：每 ~1s 移一位（rdcycle 硬件定时）---- */
         {
             static uint32 last_toggle = 0;

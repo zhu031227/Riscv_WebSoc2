@@ -15,8 +15,9 @@
 #define TCP_FLAG_ACK  0x10u
 #define TCP_FLAG_URG  0x20u
 
-/* 初始化 + 主处理函数 */
+/* 初始化 + 主处理 + 保洁定时器 */
 void tcp_init(void);
 void tcp_handler(void);
+void tcp_periodic_check(void);
 
 #endif
