@@ -208,6 +208,9 @@ static uint16_t tcp_src_port;    // 对方端口
 static uint16_t tcp_dst_port;    // 我方监听端口
 static uint32_t tcp_src_ip;      // 对方 IP
 
+/* 全局标志: TCP 控灯时置 1, 暂停流水灯 */
+uint8_t tcp_led_override = 0;
+
 /* ---- 保洁/重传变量 ---- */
 static uint32_t tcp_last_activity;   // 上次活动时间 (rdcycle)
 static uint32_t tcp_last_tx_time;    // 上次发送时间
@@ -414,9 +417,11 @@ void tcp_handler(void) {
             }
             /* ---- LED 控制命令 ---- */
             // 单字节命令: 0x00~0x0F 直接设 LED, 回显设置值
+            // 设 tcp_led_override 标志位, 暂停流水灯
             if (data_len >= 1) {
                 uint8 cmd = buf[0] & 0x0F;    // 取低 4 位
                 LCPU_SET_LED(cmd);             // 设置 LED
+                tcp_led_override = 1;          // 暂停流水灯
                 buf[0] = cmd | 0x80;           // 回显时 bit7=1 表示已执行
             }
 

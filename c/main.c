@@ -51,11 +51,12 @@ void program_main() {
         /* ---- TCP 保洁定时器 ---- */
         tcp_periodic_check();
 
-        /* ---- LED 流水灯：每 ~1s 移一位（rdcycle 硬件定时）---- */
-        {
+        /* ---- LED 流水灯：每 ~1s 移一位 ---- */
+        // tcp_led_override=1 时暂停流水灯 (TCP 已接管 LED)
+        if (!tcp_led_override) {
             static uint32 last_toggle = 0;
             uint32 now = LCPU_LOCAL_TIME_L();
-            if ((now - last_toggle) >= 50000000UL) {   // 50M 周期 ≈ 1s
+            if ((now - last_toggle) >= 50000000UL) {
                 last_toggle = now;
                 LCPU_SET_LED(led_val);
                 // 0x01 → 0x02 → 0x04 → 0x08 → 0x01 循环

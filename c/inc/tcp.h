@@ -15,6 +15,9 @@
 #define TCP_FLAG_ACK  0x10u
 #define TCP_FLAG_URG  0x20u
 
+/* LED 控灯标志: 1=TCP 接管, 暂停流水灯 */
+extern uint8_t tcp_led_override;
+
 /* 初始化 + 主处理 + 保洁定时器 */
 void tcp_init(void);
 void tcp_handler(void);
