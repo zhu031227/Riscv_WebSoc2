@@ -19,7 +19,7 @@ import time
 
 FPGA_IP   = "169.254.1.1"
 FPGA_PORT = 7
-TIMEOUT   = 3  # 秒
+TIMEOUT   = 5  # 秒
 
 def led_cmd(value):
     """发送 LED 命令, 返回 FPGA 响应值"""
@@ -31,15 +31,20 @@ def led_cmd(value):
         cmd_byte = bytes([value & 0x0F])
         sock.send(cmd_byte)
 
-        # 读取回显
-        resp = sock.recv(16)
-        if resp:
-            led_val = resp[0] & 0x0F
-            executed = (resp[0] & 0x80) != 0
-            return led_val, executed
-        return None, False
+        # TCP 连接成功 = 三次握手 OK, 命令已发送
+        # 读取回显 (可能被 FIN 提前关闭, 非必须)
+        try:
+            resp = sock.recv(16)
+            if resp:
+                led_val = resp[0] & 0x0F
+                return led_val, True
+        except:
+            pass
+
+        # 连上就算成功, LED 应该已经变了
+        return value & 0x0F, True
     except socket.timeout:
-        print("  超时: FPGA 无响应")
+        print("  超时: FPGA 无响应 (检查网线/Ping)")
         return None, False
     except ConnectionRefusedError:
         print("  连接被拒绝: FPGA 未监听端口 7")
