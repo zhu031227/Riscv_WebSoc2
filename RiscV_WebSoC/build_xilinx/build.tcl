@@ -12,8 +12,7 @@ foreach f [lsort [glob -nocomplain ${rtl_dir}/*.v ${rtl_dir}/*.sv]] {
 puts "\[OK\] Added [llength [glob -nocomplain ${rtl_dir}/*.v ${rtl_dir}/*.sv]] RTL files"
 
 # fpga_ila RTL
-set ila_home $::env(FPGA_ILA_HOME)
-if {$ila_home == ""} { set ila_home [file normalize "../../fpga_ila-fcapz_ela_enhance"] }
+set ila_home [file normalize "/home/haitaoz/work/FPGA_Prj/fpga_ila-fcapz_ela_enhance"]
 puts "\[FPGA_ILA\] $ila_home"
 foreach f [split [exec cat ../fpga_ila_files.f | grep -v '^#' | grep -v '^\$'] "\n"] {
     if {$f != ""} {
