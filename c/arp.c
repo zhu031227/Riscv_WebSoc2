@@ -1,103 +1,178 @@
-// arp.c
-#include "lcpu_general.h"
-#include "arp.h"
-#include "eth.h"
-#include <string.h>
+/*
+ * arp.c — ARP 协议处理（FIFO 直接读写）
+ * ======================================
+ * 功能：从 RX FIFO 解析 ARP 请求，构造 ARP 应答直接写入 TX FIFO
+ *
+ * arp_reply() 处理流程：
+ *   1. 校验目的 MAC（本机单播或广播）
+ *   2. 校验目标 IP 是否为本机
+ *   3. 校验操作码为 ARP Request (0x0001)
+ *   4. 逐段构造 42 字节 ARP 应答帧 → 补零到 64 字节
+ *   5. LCPU_WR_PUSH_PACKET(64) 推送发送
+ */
 
-// 1. ARP 缓存（静态全局变量，只缓存一台 PC）
-static arp_cache_t arp_cache = { .valid = false, .ip = 0, .mac = {0} };
+#include "inc/lcpu_general.h"
+#include "inc/arp.h"
 
-// 2. 初始化（清空缓存）
-void arp_init(void) {
-    arp_cache.valid = false;
-    arp_cache.ip = 0;
-    memset(arp_cache.mac, 0, 6);
+void arp_reply()
+{
+    uint16 i;
+    uint16 arp_type = 0;
+    uint32 dst_mac_high = 0;
+    uint16 dst_mac_low = 0;
+    uint32 target_ip = 0;
+
+    /* ---- 校验 1：目的 MAC（RX[0..5]）为本机 MAC 或广播 ---- */
+    for (i = 0; i < 4; i++)
+    {
+        LCPU_RD_SET_ADDR(i);
+        dst_mac_high = (dst_mac_high << 8) | (LCPU_RD_DATA8() & 0xFFu);
+    }
+    for (i = 4; i < 6; i++)
+    {
+        LCPU_RD_SET_ADDR(i);
+        dst_mac_low = (uint16)((dst_mac_low << 8) | (LCPU_RD_DATA8() & 0xFFu));
+    }
+
+    if (!((dst_mac_high == Local_MAC_HIGH && dst_mac_low == Local_MAC_LOW) ||
+          (dst_mac_high == 0xFFFFFFFFu && dst_mac_low == 0xFFFFu)))
+    {
+        return;
+    }
+
+    /* ---- 校验 2：目标 IP（RX[38..41]）是否为本机 IP ---- */
+    target_ip = 0;
+    for (i = OFF_ARP_TARGET_IP; i < OFF_ARP_TARGET_IP + 4; i++)
+    {
+        LCPU_RD_SET_ADDR(i);
+        target_ip = (target_ip << 8) | (LCPU_RD_DATA8() & 0xFFu);
+    }
+    if (target_ip != Local_IP_ADDR)
+        return;
+
+    /* ---- 校验 3：操作码（RX[20..21]）为 ARP Request ---- */
+    LCPU_RD_SET_ADDR(OFF_ARP_OPCODE);
+    arp_type = (uint16)LCPU_RD_DATA8() << 8;
+    LCPU_RD_SET_ADDR(OFF_ARP_OPCODE + 1);
+    arp_type |= LCPU_RD_DATA8();
+    if (arp_type != ARP_REQUEST)
+        return;
+
+    /*
+     * ---- 构造 ARP 应答帧（逐段写入 TX FIFO）----
+     * 帧结构（共 42 字节，补齐到 64）：
+     *   [0..5]   目的 MAC  ← 请求方 MAC (RX[6..11])
+     *   [6..11]  源 MAC    ← 本机 MAC
+     *   [12..13] 以太类型 ← 0x0806 (ARP)
+     *   [14..15] 硬件类型 ← 0x0001 (Ethernet)
+     *   [16..17] 协议类型 ← 0x0800 (IPv4)
+     *   [18]     HLEN     ← 6 (MAC 地址长度)
+     *   [19]     PLEN     ← 4 (IP 地址长度)
+     *   [20..21] 操作码   ← 0x0002 (ARP Reply)
+     *   [22..27] 发送方 MAC ← 本机 MAC
+     *   [28..31] 发送方 IP  ← 本机 IP
+     *   [32..37] 目标 MAC  ← 请求方 MAC (RX[22..27])
+     *   [38..41] 目标 IP   ← 请求方 IP (RX[28..31])
+     */
+
+    // 段1: 目的 MAC ← 请求方 MAC (RX[6..11] → TX[0..5])
+    for (i = 0; i < 6; i++)
+    {
+        LCPU_RD_SET_ADDR(OFF_ETH_SRC_MAC + i);
+        LCPU_WR_BYTE(i, LCPU_RD_DATA8());
+    }
+
+    // 段2: 源 MAC ← 本机 MAC (TX[6..11])
+    for (i = 0; i < 4; i++)
+    {
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + i, (Local_MAC_HIGH >> (24 - i * 8)) & 0xFF);
+    }
+    for (i = 0; i < 2; i++)
+    {
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 4 + i, (Local_MAC_LOW >> (8 - i * 8)) & 0xFF);
+    }
+
+    // 段3: 以太类型 (RX[12..13] → TX[12..13]，保持不变)
+    for (i = OFF_ETH_TYPE; i < OFF_ETH_TYPE + 2; i++)
+    {
+        LCPU_RD_SET_ADDR(i);
+        LCPU_WR_BYTE(i, LCPU_RD_DATA8());
+    }
+
+    // 段4: 硬件类型+协议类型+HLEN+PLEN (RX[14..19] → TX[14..19]，保持不变)
+    for (i = OFF_ARP_HTYPE; i < OFF_ARP_OPCODE; i++)
+    {
+        LCPU_RD_SET_ADDR(i);
+        LCPU_WR_BYTE(i, LCPU_RD_DATA8());
+    }
+
+    // 段5: 操作码 = ARP Reply (TX[20..21] = 0x0002)
+    LCPU_WR_BYTE(OFF_ARP_OPCODE, (ARP_ECHO_REPLY >> 8) & 0xFF);
+    LCPU_WR_BYTE(OFF_ARP_OPCODE + 1, (ARP_ECHO_REPLY >> 0) & 0xFF);
+
+    // 段6: 发送方 MAC ← 本机 MAC (TX[22..27])
+    for (i = 0; i < 4; i++)
+    {
+        LCPU_WR_BYTE(OFF_ARP_SENDER_MAC + i, (Local_MAC_HIGH >> (24 - i * 8)) & 0xFF);
+    }
+    for (i = 0; i < 2; i++)
+    {
+        LCPU_WR_BYTE(OFF_ARP_SENDER_MAC + 4 + i, (Local_MAC_LOW >> (8 - i * 8)) & 0xFF);
+    }
+
+    // 段7: 发送方 IP ← 本机 IP (TX[28..31])
+    for (i = 0; i < 4; i++)
+    {
+        LCPU_WR_BYTE(OFF_ARP_SENDER_IP + i, (Local_IP_ADDR >> (24 - i * 8)) & 0xFF);
+    }
+
+    // 段8: 目标 MAC ← 请求方 MAC (RX[22..27] → TX[32..37])
+    for (i = 0; i < 6; i++)
+    {
+        LCPU_RD_SET_ADDR(OFF_ARP_SENDER_MAC + i);
+        LCPU_WR_BYTE(OFF_ARP_TARGET_MAC + i, LCPU_RD_DATA8());
+    }
+
+    // 段9: 目标 IP ← 请求方 IP (RX[28..31] → TX[38..41])
+    for (i = 0; i < 4; i++)
+    {
+        LCPU_RD_SET_ADDR(OFF_ARP_SENDER_IP + i);
+        LCPU_WR_BYTE(OFF_ARP_TARGET_IP + i, LCPU_RD_DATA8());
+    }
+
+    // 填充到以太网最小帧长 64 字节（TX[42..63] = 0）
+    for (i = 42; i < 64; i++)
+    {
+        LCPU_WR_BYTE(i, 0);
+    }
+
+    LCPU_WR_PUSH_PACKET(64);
 }
-
-// 3. 获取缓存 MAC（供上层调用）
-int arp_get_mac(uint32_t ip, uint8_t *mac) {
-    if (arp_cache.valid && arp_cache.ip == ip) {
-        memcpy(mac, arp_cache.mac, 6);
-        return 1;
-    }
-    return 0;
-}
-
-// 4. 核心：ARP 处理函数
-int arp_process(uint8_t *frame, uint16_t len) {
-    // 最小ARP帧校验
-    if(len < 42) return 0;
-
-    // 4.1 检查以太网类型是否为 ARP (0x0806)
-    uint16_t eth_type = (frame[OFF_ETH_TYPE] << 8) | frame[OFF_ETH_TYPE + 1];
-    if (eth_type != ETH_TYPE_ARP) {
-        return 0;
-    }
-
-    // 4.2 校验ARP硬件/协议类型、地址长度
-    if (frame[OFF_ARP_HTYPE] != 0x00 || frame[OFF_ARP_HTYPE+1] != 0x01) return 0;
-    if (frame[OFF_ARP_PTYPE] != 0x08 || frame[OFF_ARP_PTYPE+1] != 0x00) return 0;
-    if (frame[OFF_ARP_HLEN] != 6 || frame[OFF_ARP_PLEN] != 4) return 0;
-
-    // 4.3 读取操作码
-    uint16_t opcode = (frame[OFF_ARP_OPCODE] << 8) | frame[OFF_ARP_OPCODE + 1];
-    if (opcode != ARP_REQUEST) {
-        return 0;
-    }
-
-    // 4.4 对比目标IP是否为本机
-    uint32_t target_ip = 
-        ((uint32_t)frame[OFF_ARP_TARGET_IP] << 24) |
-        ((uint32_t)frame[OFF_ARP_TARGET_IP + 1] << 16) |
-        ((uint32_t)frame[OFF_ARP_TARGET_IP + 2] << 8) |
-        (uint32_t)frame[OFF_ARP_TARGET_IP + 3];
-    if (target_ip != LOCAL_IP_ADDR) {
-        return 0;
-    }
-
-    // 4.5 提取请求方MAC、IP，更新ARP缓存
-    uint8_t *sender_mac = &frame[OFF_ARP_SENDER_MAC];
-    uint32_t sender_ip = 
-        ((uint32_t)frame[OFF_ARP_SENDER_IP] << 24) |
-        ((uint32_t)frame[OFF_ARP_SENDER_IP + 1] << 16) |
-        ((uint32_t)frame[OFF_ARP_SENDER_IP + 2] << 8) |
-        (uint32_t)frame[OFF_ARP_SENDER_IP + 3];
-
-    arp_cache.valid = true;
-    arp_cache.ip = sender_ip;
-    memcpy(arp_cache.mac, sender_mac, 6);
-
-    // 4.6 二层MAC: 发送方(src)变为新目的(dst)，本机MAC成为新源(src)
-    memcpy(&frame[OFF_ETH_DST_MAC], &frame[OFF_ETH_SRC_MAC], 6);
-
-    // 4.7 写入本机MAC作为回复源MAC
-    uint8_t my_mac[6];
-    eth_get_mac(my_mac);
-    memcpy(&frame[OFF_ETH_SRC_MAC], my_mac, 6);
-
-    // 4.8 修改ARP操作码为ARP应答 00 02
-    frame[OFF_ARP_OPCODE] = 0x00;
-    frame[OFF_ARP_OPCODE + 1] = 0x02;
-
-    // 4.9 ARP载荷：发送端为本机，目标端为请求主机
-    memcpy(&frame[OFF_ARP_TARGET_MAC], sender_mac, 6);
-    frame[OFF_ARP_TARGET_IP]     = (sender_ip >> 24) & 0xFF;
-    frame[OFF_ARP_TARGET_IP + 1] = (sender_ip >> 16) & 0xFF;
-    frame[OFF_ARP_TARGET_IP + 2] = (sender_ip >> 8)  & 0xFF;
-    frame[OFF_ARP_TARGET_IP + 3] = sender_ip         & 0xFF;
-
-    memcpy(&frame[OFF_ARP_SENDER_MAC], my_mac, 6);
-    frame[OFF_ARP_SENDER_IP]     = (LOCAL_IP_ADDR >> 24) & 0xFF;
-    frame[OFF_ARP_SENDER_IP + 1] = (LOCAL_IP_ADDR >> 16) & 0xFF;
-    frame[OFF_ARP_SENDER_IP + 2] = (LOCAL_IP_ADDR >> 8)  & 0xFF;
-    frame[OFF_ARP_SENDER_IP + 3] = LOCAL_IP_ADDR         & 0xFF;
-
-    // 4.10 填充至60字节最小以太网帧
-    uint16_t tx_len = 42;
-    for(uint16_t i = tx_len; i < 60; i++) {
-        frame[i] = 0x00;
-    }
-    tx_len = 60;
-    eth_tx_frame(frame, tx_len);
-    return 1;
-}
+/*
+ * 网络数据到达后的处理流程：
+ *
+ *   网络数据到达
+ *        │
+ *        ▼
+ *   ┌─────────────┐
+ *   │ 以太帧接收    │
+ *   └──────┬──────┘
+ *          │ 解析以太类型
+ *          ▼
+ *     ┌────┴────┐
+ *     │ ARP(0x0806) ──→ arp_reply() → 写 ARP Reply → 推送
+ *     │ IP (0x0800) ──→ eth_proc() → 验 MAC → 写 MAC 头 → 返回 IP_PROC
+ *     │                     │
+ *     │                     ▼
+ *     │               ip_process() 验证 IP 头 + 缓存源 IP
+ *     │                     │
+ *     │                     ▼
+ *     │               icmp_reply()
+ *     │                 ├─ ip_header_update()  写入交换后的 IP 头
+ *     │                 ├─ 写 ICMP type=0
+ *     │                 ├─ 拷贝 ID/Seq/Data
+ *     │                 ├─ 计算 ICMP 校验和
+ *     │                 ├─ 补零到 64 字节
+ *     │                 └─ LCPU_WR_PUSH_PACKET 发送
+ *     └────────────────────┘
+ */

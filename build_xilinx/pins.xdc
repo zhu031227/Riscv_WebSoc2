@@ -62,3 +62,11 @@ set_property IOSTANDARD LVCMOS33 [get_ports rgmii_reset_l]
 #===== FPGA 配置电压 =====
 set_property CFGBVS VCCO [current_design]
 set_property CONFIG_VOLTAGE 3.3 [current_design]
+
+#===================================================================
+# 6. ILA UART (fpga_ila 调试) — 请根据实际板子调整引脚!
+#===================================================================
+set_property PACKAGE_PIN T19 [get_ports ila_uart_rxd]
+set_property PACKAGE_PIN R19 [get_ports ila_uart_txd]
+set_property IOSTANDARD LVCMOS33 [get_ports ila_uart_rxd]
+set_property IOSTANDARD LVCMOS33 [get_ports ila_uart_txd]
