@@ -1,21 +1,7 @@
 #!/bin/bash
-cd /home/haitaoz/work/FPGA_Prj/RiscV_webSoC2/build_xilinx
+cd /home/haitaoz/work/FPGA_Prj/RiscV_WebSoC2/build_xilinx
 source ~/Xilinx/2024.1/Vivado/2024.1/settings64.sh
 
-# Build MEM files
-python3 -c "
-import struct
-fw = open('../c_build/out/firmware.bin','rb').read()
-padded = fw + b'\x00' * (4096 * 4 - len(fw))
-for bank in range(16):
-    start = bank * 256
-    with open(f'bank{bank}.mem','w') as f:
-        for i in range(256):
-            w = struct.unpack('<I', padded[(start+i)*4:(start+i)*4+4])[0]
-            f.write(f'@{i:03X} {w:08X}\n')
-"
-
-# updatemem
 updatemem -meminfo RiscV_WebSoC.mmi \
   -data bank0.mem  -proc "u_riscv/riscv_cpu_generation.u_riscv_cpu/u_instru_ram/gen_xilinx_xpm_tdpram.xpm_bank[0].u_xpm_memory_tdpram_bank/xpm_memory_base_inst" \
   -data bank1.mem  -proc "u_riscv/riscv_cpu_generation.u_riscv_cpu/u_instru_ram/gen_xilinx_xpm_tdpram.xpm_bank[1].u_xpm_memory_tdpram_bank/xpm_memory_base_inst" \
@@ -36,7 +22,5 @@ updatemem -meminfo RiscV_WebSoC.mmi \
   -bit RiscV_WebSoC.bit -out RiscV_WebSoC_fw.bit -force
 
 echo "updatemem done"
-
-# Program
 vivado -mode batch -nojournal -nolog -source program.tcl
 echo "Program done"

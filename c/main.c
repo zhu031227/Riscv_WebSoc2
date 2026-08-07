@@ -37,24 +37,13 @@ int main() {
 
 void program_main() {
     /* ---- LED 上电自检：全亮 ~200ms → 全灭 ---- */
-#ifdef SIM_FAST
-    LCPU_SET_LED(0x0F);
-    LCPU_SET_LED(0x00);
-#else
     LCPU_SET_LED(0x0F);
     volatile uint32 dly = 5000000;
     while (dly--) { asm volatile("nop"); }
     LCPU_SET_LED(0x00);
-#endif
 
     /* ---- TCP 初始化 ---- */
     tcp_init();
-
-#ifdef SIM_FAST
-    /* 仿真自测：直接跑三次握手，完成后死等 */
-    tcp_self_test();
-    while (1) { asm volatile("wfi"); }  // 低功耗等，仿真不烧时间
-#endif
 
     uint32 led_val = 0x01;   // 流水灯初始位置：LED0
 

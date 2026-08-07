@@ -10,12 +10,3 @@ set_false_path -to   [get_clocks rgmii_rxc] -from [all_clocks]
 set_clock_groups -asynchronous \
     -group [get_clocks -include_generated clk_125m_unbuf] \
     -group [get_clocks -include_generated clk_125m_tx_unbuf]
-
-#===================================================================
-# ILA 探针 false path (调试信号, 不要求建立保持时间)
-#===================================================================
-set_false_path -to [get_pins u_ila_core0/probe*]
-
-# ILA 所有相关路径 false path (调试逻辑, 不影响主功能)
-set_false_path -from [get_clocks clk_50m_cpu_unbuf] -to [get_clocks clk_125m_unbuf]
-set_false_path -from [get_clocks clk_125m_unbuf] -to [get_clocks clk_50m_cpu_unbuf]

@@ -6,7 +6,6 @@
 #include "inc/lcpu_general.h"
 #include "inc/tcp.h"
 #include "inc/ip.h"
-#include "inc/eth.h"
 
 //1.网络字节转换（大端）
 
@@ -230,15 +229,11 @@ void tcp_handler(void) {
             tcp_dst_port = dst_port;
             tcp_src_ip = src_ip;            // src_ip 由 ip_proc 提前解析好了
             tcp_rcv_ack = seq_num + 1;      // 期望下次发 seq+1
-#ifdef SIM_FAST
-            tcp_snd_seq = 0x12345678;  // 仿真固定值，方便 testbench 匹配
-#else
             tcp_snd_seq = LCPU_LOCAL_TIME_L(); // 随机初始序列号
-#endif
 
             tcp_state = TCP_STATE_SYN_RECEIVED;
 
-            // 亮 LED0
+            // 亮 LED0，表示“收到 SYN，已记录”
             LCPU_SET_LED(0x01);
 
             // ★ 新增：回复 SYN+ACK（第二次握手）
@@ -248,14 +243,13 @@ void tcp_handler(void) {
     else if (tcp_state == TCP_STATE_SYN_RECEIVED) {
         // 收到 ACK（第三次握手）
         if (flags & TCP_FLAG_ACK) {
-            LCPU_SET_LED(0x05);  // 诊断: ACK 收到
             // 检查确认号是否正确
             if (ack_num == tcp_snd_seq) {
                 tcp_state = TCP_STATE_ESTABLISHED;
                 LCPU_SET_LED(0x0F);  // ★ 全亮！三次握手成功！
+
+                // ★ 新增：回复 ACK（确认三次握手完成）
                 send_ack();
-            } else {
-                LCPU_SET_LED(0x03);  // 诊断: ack_num 不匹配
             }
         }
     }
@@ -315,72 +309,3 @@ static void send_ack(void) {
     ip_header_update(tcp_src_ip, ip_header_len + 20);
     send_tcp_segment(tcp_header);
 }
-
-// ==========================================
-// SIM_FAST 自测：模拟三次握手，不依赖 RX FIFO
-// ==========================================
-#ifdef SIM_FAST
-// RX FIFO 替换所需的全局变量 (在 lcpu_general.h 中声明为 extern)
-uint8  *sim_rx_buf_ptr;
-uint16  sim_rx_buf_len;
-uint16  sim_rx_addr;
-uint8   sim_tx_buf[128];
-uint16  sim_tx_addr;
-uint16  sim_tx_pkt_len;
-
-// TCP SYN 包 (54 字节)
-static const uint8 syn_pkt[54] = {
-    0x00,0x00,0x01,0x02,0x04,0x05, 0x9c,0x2d,0xcd,0xac,0x8f,0xa4, 0x08,0x00,
-    0x45,0x00, 0x00,0x28, 0x00,0x01, 0x40,0x00, 0x40,0x06,
-    0x00,0x00,
-    0xa9,0xfe,0x5c,0x15, 0xa9,0xfe,0x01,0x01,
-    0x30,0x39, 0x00,0x07,
-    0x05,0x85,0x2e,0xa5, 0x00,0x00,0x00,0x00,
-    0x50,0x02, 0xfa,0xf0, 0x00,0x00, 0x00,0x00
-};
-
-// TCP ACK 包 (同 SYN，改 flags=0x10, seq=SYN_seq+1, ack=FPGA_ISN+1)
-static uint8 ack_pkt[54];
-
-// 模拟一次收包→处理流程: eth_proc → ip_proc → tcp_handler
-static void sim_process_packet(uint8 *pkt, uint16 len) {
-    sim_rx_buf_ptr = pkt;
-    sim_rx_buf_len = len;
-    sim_rx_addr    = 0;
-
-    uint16 ptype = eth_proc();                         // 读 EtherType + 写 MAC 头
-    if (ptype == IP_PROC) {
-        uint16 iptype = ip_proc();                     // 读 IP 头 → 返回协议类型
-        if (iptype == TCP_PROC) {
-            tcp_handler();                              // 读 TCP 头 → 状态机
-        }
-    }
-}
-
-void tcp_self_test(void) {
-    tcp_init();
-
-    // === Phase 1: 注入 SYN ===
-    tcp_state = TCP_STATE_CLOSED;
-    sim_process_packet((uint8*)syn_pkt, 54);
-    // 成功标志: LED=0x01 (SYN_RECEIVED)
-
-    // === Phase 2: 注入 ACK ===
-    // 构造 ACK 包: 同 SYN, 改 flags=ACK, seq=0x05852ea6, ack=tcp_snd_seq
-    {
-        uint8 i;
-        for (i=0; i<54; i++) ack_pkt[i] = syn_pkt[i];
-        // TCP seq = 0x05852ea5 + 1 = 0x05852ea6
-        ack_pkt[38]=0x05; ack_pkt[39]=0x85; ack_pkt[40]=0x2e; ack_pkt[41]=0xa6;
-        // TCP ack = tcp_snd_seq (FPGA ISN + 1)
-        uint32 isn = tcp_snd_seq;
-        ack_pkt[42]=(isn>>24)&0xFF; ack_pkt[43]=(isn>>16)&0xFF;
-        ack_pkt[44]=(isn>>8)&0xFF;  ack_pkt[45]=isn&0xFF;
-        // flags = ACK
-        ack_pkt[47] = 0x10;
-
-        sim_process_packet(ack_pkt, 54);
-        // 成功标志: LED=0x0F (ESTABLISHED)
-    }
-}
-#endif
