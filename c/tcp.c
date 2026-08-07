@@ -412,10 +412,18 @@ void tcp_handler(void) {
                 LCPU_RD_SET_ADDR(data_off + i);
                 buf[i] = LCPU_RD_DATA8();
             }
+            /* ---- LED 控制命令 ---- */
+            // 单字节命令: 0x00~0x0F 直接设 LED, 回显设置值
+            if (data_len >= 1) {
+                uint8 cmd = buf[0] & 0x0F;    // 取低 4 位
+                LCPU_SET_LED(cmd);             // 设置 LED
+                buf[0] = cmd | 0x80;           // 回显时 bit7=1 表示已执行
+            }
+
             tcp_rcv_ack = seq_num + data_len;
             send_echo_packet(buf, data_len);
             tcp_snd_seq += data_len;
-            send_fin();                  // Echo 后主动关
+            send_fin();                  // 命令执行后主动关
             tcp_state = TCP_STATE_FIN_WAIT_1;
         }
         break;
