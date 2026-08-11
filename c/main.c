@@ -93,7 +93,7 @@ void program_main() {
                 // ICMP Echo Request → 构造 Echo Reply（内部自动 PUSH）
                 icmp_reply();
             } else if (iptype == TCP_PROC) {
-                // TCP 包 → 三次握手状态机
+                // TCP 包 → 状态机
                 tcp_handler();
             }
         }
