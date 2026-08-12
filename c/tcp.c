@@ -887,6 +887,9 @@ void tcp_handler(void) {
  * 时间基准：LCPU_LOCAL_TIME_L() = rdcycle @ 50MHz
  * ================================================================ */
 void tcp_periodic_check(void) {
+#ifdef SIM_SKIP_DELAY
+    return;  /* 仿真模式: 跳过保洁, 防止定时器过早关连接 */
+#endif
     uint32 now = LCPU_LOCAL_TIME_L();
     uint8 i;
 

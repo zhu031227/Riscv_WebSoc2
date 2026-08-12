@@ -59,6 +59,13 @@ set_property IOSTANDARD LVCMOS33 [get_ports Eth0_MDC]
 set_property IOSTANDARD LVCMOS33 [get_ports Eth0_MDIO]
 set_property IOSTANDARD LVCMOS33 [get_ports rgmii_reset_l]
 
+#===== ILA UART (软逻辑分析仪调试接口) =====
+set_property PACKAGE_PIN T19 [get_ports ila_uart_rxd]
+set_property PACKAGE_PIN R19 [get_ports ila_uart_txd]
+set_property IOSTANDARD LVCMOS33 [get_ports ila_uart_rxd]
+set_property IOSTANDARD LVCMOS33 [get_ports ila_uart_txd]
+set_property PULLUP true [get_ports ila_uart_rxd]
+
 #===== FPGA 配置电压 =====
 set_property CFGBVS VCCO [current_design]
 set_property CONFIG_VOLTAGE 3.3 [current_design]
