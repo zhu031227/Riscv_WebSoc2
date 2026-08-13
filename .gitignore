@@ -24,6 +24,7 @@ toolchain/out_*/
 *.map
 *.lst
 *.hex
+a.out
 
 # Simulation artifacts
 sim/work/

@@ -10,11 +10,3 @@ set_false_path -to   [get_clocks rgmii_rxc] -from [all_clocks]
 set_clock_groups -asynchronous \
     -group [get_clocks -include_generated clk_125m_unbuf] \
     -group [get_clocks -include_generated clk_125m_tx_unbuf]
-
-#===== MMCM 相移时钟组 (同源, ODDR/IDDR内部处理时序) =====
-set_clock_groups -asynchronous \
-    -group [get_clocks -include_generated clk_125m_unbuf] \
-    -group [get_clocks -include_generated clk_125m_tx_unbuf]
-
-#===== ILA (软逻辑分析仪): 探针→ILA内部为非功能调试路径 =====
-set_false_path -to [get_cells -hier -filter {NAME =~ *u_ila_core0*}]
