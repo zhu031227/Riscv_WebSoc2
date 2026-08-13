@@ -59,12 +59,9 @@ set_property IOSTANDARD LVCMOS33 [get_ports Eth0_MDC]
 set_property IOSTANDARD LVCMOS33 [get_ports Eth0_MDIO]
 set_property IOSTANDARD LVCMOS33 [get_ports rgmii_reset_l]
 
-#===== ILA UART (软逻辑分析仪调试接口) =====
-set_property PACKAGE_PIN T19 [get_ports ila_uart_rxd]
-set_property PACKAGE_PIN R19 [get_ports ila_uart_txd]
-set_property IOSTANDARD LVCMOS33 [get_ports ila_uart_rxd]
-set_property IOSTANDARD LVCMOS33 [get_ports ila_uart_txd]
-set_property PULLUP true [get_ports ila_uart_rxd]
+#===== UART (板载 USB-UART, 已释放给 ILA 串口调试) =====
+# uart_rx(L21) / uart_tx(M21) 现在接 ILA 的 UART, 波特率 921600
+# 无需额外引脚约束, L21/M21 的 IOSTANDARD 已在上面设置
 
 #===== FPGA 配置电压 =====
 set_property CFGBVS VCCO [current_design]

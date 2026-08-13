@@ -9,23 +9,11 @@
       "data_depth": 2048,
       "max_windows": 1,
       "probes": [
-        { "name": "mac_rx_data",  "width": 8,  "radix": "hex", "bit_lo": 0 },
-        { "name": "mac_tx_data",  "width": 8,  "radix": "hex", "bit_lo": 8 },
-        { "name": "mac_rx_sop",   "width": 1,  "radix": "bin", "bit_lo": 16 },
-        { "name": "mac_rx_eop",   "width": 1,  "radix": "bin", "bit_lo": 17 },
-        { "name": "mac_tx_sop",   "width": 1,  "radix": "bin", "bit_lo": 18 },
-        { "name": "mac_tx_en",    "width": 1,  "radix": "bin", "bit_lo": 19 },
-        { "name": "mac_tx_eop",   "width": 1,  "radix": "bin", "bit_lo": 20 },
-        { "name": "mac_tx_err",   "width": 1,  "radix": "bin", "bit_lo": 21 },
-        { "name": "bus_address",  "width": 32, "radix": "hex", "bit_lo": 22 },
-        { "name": "bus_wdata",    "width": 32, "radix": "hex", "bit_lo": 54 },
-        { "name": "bus_req",      "width": 1,  "radix": "bin", "bit_lo": 86 },
-        { "name": "bus_ack",      "width": 1,  "radix": "bin", "bit_lo": 87 },
-        { "name": "gmii_rxd",     "width": 8,  "radix": "hex", "bit_lo": 88 },
-        { "name": "gmii_rx_dv",   "width": 1,  "radix": "bin", "bit_lo": 96 },
-        { "name": "gmii_txd",     "width": 8,  "radix": "hex", "bit_lo": 97 },
-        { "name": "gmii_tx_en",   "width": 1,  "radix": "bin", "bit_lo": 105 },
-        { "name": "led_val",      "width": 4,  "radix": "hex", "bit_lo": 106 }
+        { "name": "bus_address", "width": 32, "radix": "hex", "bit_lo": 0 },
+        { "name": "bus_wdata",   "width": 32, "radix": "hex", "bit_lo": 32 },
+        { "name": "bus_req",     "width": 1,  "radix": "bin", "bit_lo": 64 },
+        { "name": "bus_ack",     "width": 1,  "radix": "bin", "bit_lo": 65 },
+        { "name": "led_val",     "width": 4,  "radix": "hex", "bit_lo": 66 }
       ]
     }
   ]
