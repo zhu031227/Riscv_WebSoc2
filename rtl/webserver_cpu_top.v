@@ -27,7 +27,7 @@ module webserver_cpu_top #(
     // PHY 控制
     output wire       rgmii_reset_l,
 
-    // UART (板载 USB-UART, 释放给 ILA 串口调试用)
+    // UART
     input  wire       uart_rx,
     output wire       uart_tx,
 
@@ -303,8 +303,8 @@ module webserver_cpu_top #(
   ) u_riscv (
       .clk            (clk_50m),
       .reset_l        (reset_l),
-      .uart_rx        (uart_rx),
-      .uart_tx        (uart_tx),
+      .uart_rx        (cpu_uart_rx),
+      .uart_tx        (cpu_uart_tx),
       .riscv_reset_l  (riscv_reset_l),
       // 指令 RAM 接口
       .pram_wr        (pram_wr),
@@ -370,5 +370,59 @@ module webserver_cpu_top #(
   //============================================================================
   assign Eth0_MDC  = 1'b0;
   assign Eth0_MDIO = 1'bz;
+
+  //============================================================================
+  // fpga_ila — 软逻辑分析仪 (UART 传输, 921600 bps)
+  // 参考 RiscV_WebSoC_3 接法: UART 固定给 ILA, CPU 侧 RX 置空闲
+  //============================================================================
+  wire ila_uart_rx = uart_rx;   // 板载串口 RX 固定给 ILA
+  wire cpu_uart_rx = 1'b1;      // CPU 侧 RX 置空闲 (固件改由 JTAG 上传)
+  wire cpu_uart_tx;             // CPU UART TX 未接出
+  wire ila_uart_tx;             // ILA UART TX
+  assign uart_tx = ila_uart_tx; // 板载串口 TX 固定由 ILA 驱动
+
+  localparam ILA_NUM_CORES    = 1;
+  localparam ILA_CLK_HZ       = 50_000_000;
+  localparam ILA_BAUD         = 921600;
+
+  wire [ILA_NUM_CORES-1:0]     ila_we;
+  wire [ILA_NUM_CORES-1:0]     ila_re;
+  wire [15:0]                  ila_addr;
+  wire [31:0]                  ila_wdata;
+  wire [ILA_NUM_CORES*32-1:0]  ila_rdata;
+  wire                         ila_jtag_clk, ila_jtag_rst;
+
+  soft_ila_top #(
+      .CORE_EN(1), .DATA_DEPTH(2048), .MAX_WINDOWS(1),
+      .SAMPLE_HZ(50000000), .RST_ACTIVE_LOW(1), .NUM_PROBES(5),
+      .PROBE0_WIDTH(32), .PROBE1_WIDTH(32),
+      .PROBE2_WIDTH(1),  .PROBE3_WIDTH(1),  .PROBE4_WIDTH(4),
+      .EXT_TRIG_EN(1)
+  ) u_ila_core0 (
+      .sample_clk(clk_50m), .rst_in(sys_rst_n),
+      .probe0 (bus_address),  .probe1 (bus_wdata),
+      .probe2 (bus_req),      .probe3 (bus_ack),
+      .probe4 (led_val),
+      .trigger_in(1'b0), .trigger_out(), .armed_out(),
+      .reg_we(ila_we[0]), .reg_re(ila_re[0]),
+      .reg_addr(ila_addr), .reg_wdata(ila_wdata),
+      .reg_rdata(ila_rdata[0*32 +: 32]),
+      .jtag_clk(ila_jtag_clk)
+  );
+
+  ila_hub_top #(
+      .TRANSPORT_EN(3'b001), .NUM_CORES(ILA_NUM_CORES),
+      .ILA_CLK_HZ(ILA_CLK_HZ), .ILA_BAUD(ILA_BAUD),
+      .REG_HOLD(4)
+  ) u_ila_hub (
+      .clk(clk_50m), .rst(~sys_rst_n),
+      .uart_rxd(ila_uart_rx), .uart_txd(ila_uart_tx),
+      .gmii_rx_clk(1'b0), .gmii_rxd(8'd0), .gmii_rx_dv(1'b0),
+      .gmii_txd(), .gmii_tx_en(),
+      .core_reg_we(ila_we), .core_reg_re(ila_re),
+      .core_reg_addr(ila_addr), .core_reg_wdata(ila_wdata),
+      .core_reg_rdata(ila_rdata),
+      .core_jtag_clk(ila_jtag_clk), .core_jtag_rst(ila_jtag_rst)
+  );
 
 endmodule
