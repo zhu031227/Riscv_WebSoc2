@@ -303,8 +303,8 @@ module webserver_cpu_top #(
   ) u_riscv (
       .clk            (clk_50m),
       .reset_l        (reset_l),
-      .uart_rx        (1'b1),
-      .uart_tx        (),
+      .uart_rx        (uart_rx),
+      .uart_tx        (uart_tx),
       .riscv_reset_l  (riscv_reset_l),
       // 指令 RAM 接口
       .pram_wr        (pram_wr),
@@ -370,55 +370,5 @@ module webserver_cpu_top #(
   //============================================================================
   assign Eth0_MDC  = 1'b0;
   assign Eth0_MDIO = 1'bz;
-
-  //============================================================================
-  // fpga_ila — 软逻辑分析仪 (UART 传输, 921600 bps, 50MHz 采样)
-  // GUI: cd fpga_ila && python gui/main.py → 连接 UART → 加载 signals.json
-  //============================================================================
-  localparam ILA_NUM_CORES    = 1;
-  localparam ILA_CLK_HZ       = 50_000_000;
-  localparam ILA_BAUD         = 921600;
-  localparam ILA_REG_HOLD     = 4;
-
-  wire [ILA_NUM_CORES-1:0]     ila_we;
-  wire [ILA_NUM_CORES-1:0]     ila_re;
-  wire [15:0]                  ila_addr;
-  wire [31:0]                  ila_wdata;
-  wire [ILA_NUM_CORES*32-1:0]  ila_rdata;
-  wire                         ila_jtag_clk, ila_jtag_rst;
-
-  // 探针: 110bit — XC7A35T-2稳定极限 (WNS=+3.28ns, 零违例)
-  soft_ila_top #(
-      .CORE_EN(1), .DATA_DEPTH(2048), .MAX_WINDOWS(1),
-      .SAMPLE_HZ(50000000), .RST_ACTIVE_LOW(1), .NUM_PROBES(5),
-      .PROBE0_WIDTH(32), .PROBE1_WIDTH(32),
-      .PROBE2_WIDTH(1),  .PROBE3_WIDTH(1),  .PROBE4_WIDTH(4),
-      .EXT_TRIG_EN(1)
-  ) u_ila_core0 (
-      .sample_clk(clk_50m), .rst_in(sys_rst_n),
-      .probe0 (bus_address),  .probe1 (bus_wdata),
-      .probe2 (bus_req),      .probe3 (bus_ack),
-      .probe4 (led_val),
-      .trigger_in(1'b0), .trigger_out(), .armed_out(),
-      .reg_we(ila_we[0]), .reg_re(ila_re[0]),
-      .reg_addr(ila_addr), .reg_wdata(ila_wdata),
-      .reg_rdata(ila_rdata[0*32 +: 32]),
-      .jtag_clk(ila_jtag_clk)
-  );
-
-  ila_hub_top #(
-      .TRANSPORT_EN(3'b001), .NUM_CORES(ILA_NUM_CORES),
-      .ILA_CLK_HZ(ILA_CLK_HZ), .ILA_BAUD(ILA_BAUD),
-      .REG_HOLD(ILA_REG_HOLD)
-  ) u_ila_hub (
-      .clk(clk_50m), .rst(~sys_rst_n),
-      .uart_rxd(uart_rx), .uart_txd(uart_tx),
-      .gmii_rx_clk(1'b0), .gmii_rxd(8'd0), .gmii_rx_dv(1'b0),
-      .gmii_txd(), .gmii_tx_en(),
-      .core_reg_we(ila_we), .core_reg_re(ila_re),
-      .core_reg_addr(ila_addr), .core_reg_wdata(ila_wdata),
-      .core_reg_rdata(ila_rdata),
-      .core_jtag_clk(ila_jtag_clk), .core_jtag_rst(ila_jtag_rst)
-  );
 
 endmodule
