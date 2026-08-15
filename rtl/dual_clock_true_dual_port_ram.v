@@ -24,12 +24,14 @@
 
 module dual_clock_true_dual_port_ram #(
     parameter data_width = 32,
-    parameter addr_width = 12,
-    parameter depth = 4096,
-    parameter block_ram_size = 32,
-    parameter ram_type = "block",
-    parameter vendor = "",
-    parameter SIMPLE_INFER = 1   // fpga_ila 兼容参数 (1=简化推断)
+    parameter addr_width = 12,  // 地址端口位宽（外部传入，仅决定端口宽度）
+    parameter depth = 4096,  // 实际需要的RAM字数（非2的幂亦可）
+    // 注意：内部实际分配深度ALLOC_DEPTH由block_ram_size计算，
+    // 可能大于2^addr_width；请确保addr_width >= $clog2(depth)
+    parameter block_ram_size = 32,  // 每块Block RAM数据位大小（Kbit，不含校验）
+    parameter ram_type = "block",  /*"block" ; "distributed" ; "M4K" ; "MLAB"*/
+    parameter vendor = "",  // "xilinx"(Xilinx) ; "intel"; ""(综合推断)
+    parameter SIMPLE_INFER = 0  // 1 = simple inference, bypass complex multi-block allocation
 ) (
     input                   clock_a,
     input                   clock_b,
@@ -43,6 +45,33 @@ module dual_clock_true_dual_port_ram #(
     input  [data_width-1:0] data_b,
     output [data_width-1:0] q_b
 );
+  // ══════════════════════════════════════════════════════════════════════
+  // SIMPLE_INFER mode: bypass complex multi-block allocation, use plain
+  // Verilog inference. Vivado/Quartus will map to BRAM/distributed RAM.
+  // ══════════════════════════════════════════════════════════════════════
+  generate
+    if (SIMPLE_INFER) begin : simple_infer_ram
+      reg [data_width-1:0] ram [0:(1<<addr_width)-1] /* synthesis syn_ramstyle = ram_type */;
+
+      reg [data_width-1:0] q_a_reg;
+      reg [data_width-1:0] q_b_reg;
+
+      // Port A: READ_FIRST
+      always @(posedge clock_a) begin
+        if (wren_a) ram[address_a] <= data_a;
+        q_a_reg <= ram[address_a];
+      end
+
+      // Port B: READ_FIRST
+      always @(posedge clock_b) begin
+        if (wren_b) ram[address_b] <= data_b;
+        q_b_reg <= ram[address_b];
+      end
+
+      assign q_a = q_a_reg;
+      assign q_b = q_b_reg;
+    end else begin : complex_ram
+
   localparam BYTE_EN_BITS = data_width / 8;
 
   // ── Block RAM 粒度分配（与 single_clock_true_dual_port_ram 一致）──
@@ -100,7 +129,6 @@ module dual_clock_true_dual_port_ram #(
   // ── 参数约束 ──────────────────────────────────────────
   //   addr_width 必须足够覆盖 ALLOC_DEPTH 的地址空间
   //   若不满足，仿真时 $fatal 报错退出；综合时未定义模块导致工具报错。
-  generate
     if (addr_width < ALLOC_ADDR_BITS) begin : gen_addr_width_check
       // synthesis translate_off
       initial begin
@@ -111,7 +139,6 @@ module dual_clock_true_dual_port_ram #(
       end
       // synthesis translate_on
     end
-  endgenerate
 
   always @(posedge clock_a) begin
     block_sel_a_r <= block_sel_a;
@@ -122,7 +149,6 @@ module dual_clock_true_dual_port_ram #(
     block_sel_b_r <= block_sel_b;
     block_sel_b_valid_r <= addr_b_valid;
   end
-  generate
     for (i = 0; i < NUM_BLOCKS; i = i + 1) begin : ram_block
       // wren decode per block（含地址有效性检查）
       assign wren_a_blocks[i] = wren_a && addr_a_valid && (block_sel_a == i[BLOCK_SEL_BITS-1:0]);
@@ -265,7 +291,6 @@ module dual_clock_true_dual_port_ram #(
         assign q_b_blocks[i] = q_b_inferred;
       end
     end
-  endgenerate
 
   always_comb begin
     q_a_mux = {data_width{1'b0}};
@@ -286,6 +311,8 @@ module dual_clock_true_dual_port_ram #(
 
   assign q_a = q_a_int;
   assign q_b = q_b_int;
+    end
+  endgenerate
 endmodule
 
 

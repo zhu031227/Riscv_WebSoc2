@@ -54,6 +54,14 @@ module webserver_cpu_top #(
   localparam CPU_BUF_PARA_WIDTH = 1;
 
   //============================================================================
+  // fpga_ila 调试系统参数 (UART, 921600 baud)
+  //============================================================================
+  localparam ILA_NUM_CORES     = 2;   // 核0=50m CPU域, 核1=125m GMII/MAC域
+  localparam [2:0] ILA_TRANSPORT_EN = 3'b001;   // UART only
+  localparam ILA_BAUD          = 921600;
+  localparam ILA_CLK_HZ        = 50_000_000;     // Hub clk = 50MHz
+
+  //============================================================================
   // 时钟 & 复位
   //============================================================================
   wire clk_50m;        // CPU 域
@@ -106,6 +114,19 @@ module webserver_cpu_top #(
   wire [7:0]  mac_rx_data;
   wire        mac_tx_sop, mac_tx_en, mac_tx_eop, mac_tx_err;
   wire [7:0]  mac_tx_data;
+
+  //============================================================================
+  // MAC/CDC 调试计数器 — 丢包根因定位用 (gmii2mac 统计输出 + cpu_channel 调试)
+  //============================================================================
+  wire [31:0] rx_afifo_full_cnt;    // gmii2mac 内部异步 FIFO (Eth_RXC→125m) 满计数
+  wire [31:0] rx_afifo_empty_cnt;
+  wire [31:0] rx_data_err_line;
+  wire [31:0] rx_correct_pkt_cnt;   // 好 FCS 帧计数 (物理层正常则 >0)
+  wire [31:0] rx_crc_err_pkt_cnt;   // 坏 FCS 帧计数 (物理层损坏则 >0)
+  wire [31:0] tx_correct_pkt_cnt;
+  wire [31:0] tx_error_pkt_cnt;
+  wire [7:0]  recv_pkt_drop_cnt;    // cpu_channel 125m→50m FIFO 满丢包计数
+  wire        mac_in_full;          // package_fifo_v2 RX full 标志 (卡高=CDC 问题)
 
   //============================================================================
   // cpu_channel ↔ lcpu_fpga_test 信号 (CPU FIFO)
@@ -174,6 +195,28 @@ module webserver_cpu_top #(
   assign led_o = led_val;
 
   //============================================================================
+  // fpga_ila 调试总线
+  //============================================================================
+  wire [ILA_NUM_CORES-1:0]     ila_we;
+  wire [ILA_NUM_CORES-1:0]     ila_re;
+  wire [15:0]                  ila_addr;
+  wire [31:0]                  ila_wdata;
+  wire [ILA_NUM_CORES*32-1:0]  ila_rdata;
+  wire                         ila_jtag_clk;
+  wire                         cpu_uart_tx;   // CPU UART TX 输出 (上传模式回显读命令)
+  wire                         ila_uart_tx;   // ILA UART TX 输出 (调试模式发波形)
+
+  //--------------------------------------------------------------------------
+  // UART 永久接 ILA (固件改由 JTAG 上传, 不再用 SW0/debug_sel 切换):
+  //   ila_uart_rx  = uart_rx      → 板载串口 RX 固定给 ILA (921600 抓波形)
+  //   cpu_uart_rx  = 1'b1         → CPU 侧 RX 置空闲 (不再走 UART 上传)
+  //   uart_tx      = ila_uart_tx  → 板载串口 TX 固定由 ILA 驱动
+  //--------------------------------------------------------------------------
+  wire ila_uart_rx = uart_rx;               // UART RX 固定给 ILA
+  wire cpu_uart_rx = 1'b1;                  // CPU 侧 RX 置空闲
+  assign uart_tx = ila_uart_tx;             // UART TX 固定由 ILA 驱动
+
+  //============================================================================
   // 1. fpga_build_time — 版本时间戳
   //============================================================================
   fpga_build_time u_build_time (
@@ -226,13 +269,13 @@ module webserver_cpu_top #(
       .mac_tx_data(mac_tx_data),
       .mac_tx_eop (mac_tx_eop),
       .mac_tx_err (mac_tx_err),
-      .rx_afifo_full_cnt (),
-      .rx_afifo_empty_cnt(),
-      .rx_data_err_line  (),
-      .rx_correct_pkt_cnt(),
-      .rx_crc_err_pkt_cnt(),
-      .tx_correct_pkt_cnt(),
-      .tx_error_pkt_cnt  ()
+      .rx_afifo_full_cnt (rx_afifo_full_cnt),
+      .rx_afifo_empty_cnt(rx_afifo_empty_cnt),
+      .rx_data_err_line  (rx_data_err_line),
+      .rx_correct_pkt_cnt(rx_correct_pkt_cnt),
+      .rx_crc_err_pkt_cnt(rx_crc_err_pkt_cnt),
+      .tx_correct_pkt_cnt(tx_correct_pkt_cnt),
+      .tx_error_pkt_cnt  (tx_error_pkt_cnt)
   );
 
   //============================================================================
@@ -277,7 +320,8 @@ module webserver_cpu_top #(
       .cpu_wr_wpkt_len (cpu_wr_wpkt_len),
       .cpu_wr_wpkt_para(),
       // 调试
-      .recv_pkt_drop_cnt(),
+      .recv_pkt_drop_cnt(recv_pkt_drop_cnt),
+      .mac_in_full      (mac_in_full),
       .dbg_fifo_wdata  (),
       .dbg_fifo_wen    (),
       .dbg_fifo_push   ()
@@ -303,8 +347,8 @@ module webserver_cpu_top #(
   ) u_riscv (
       .clk            (clk_50m),
       .reset_l        (reset_l),
-      .uart_rx        (cpu_uart_rx),
-      .uart_tx        (cpu_uart_tx),
+      .uart_rx        (cpu_uart_rx),   // 固定空闲(1'b1), 固件改由 JTAG 上传
+      .uart_tx        (cpu_uart_tx),    // CPU UART TX 未接出 (板载 uart_tx 归 ILA)
       .riscv_reset_l  (riscv_reset_l),
       // 指令 RAM 接口
       .pram_wr        (pram_wr),
@@ -366,63 +410,182 @@ module webserver_cpu_top #(
   );
 
   //============================================================================
+  // 7. fpga_ila 核 #0 — 32 探针, 184bit 总线观测
+  //    sample_clk = clk_50m (20ns 粒度, 时序可靠)
+  //============================================================================
+  soft_ila_top #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (1),
+      .SAMPLE_HZ     (50_000_000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (32),
+      .PROBE0_WIDTH  (1),    // gmii_rx_dv
+      .PROBE1_WIDTH  (8),    // gmii_rxd
+      .PROBE2_WIDTH  (1),    // gmii_tx_en
+      .PROBE3_WIDTH  (8),    // gmii_txd
+      .PROBE4_WIDTH  (1),    // mac_rx_sop
+      .PROBE5_WIDTH  (1),    // mac_rx_en
+      .PROBE6_WIDTH  (8),    // mac_rx_data
+      .PROBE7_WIDTH  (1),    // mac_rx_eop
+      .PROBE8_WIDTH  (1),    // mac_tx_sop
+      .PROBE9_WIDTH  (1),    // mac_tx_en
+      .PROBE10_WIDTH (8),    // mac_tx_data
+      .PROBE11_WIDTH (1),    // mac_tx_eop
+      .PROBE12_WIDTH (1),    // mac_tx_err
+      .PROBE13_WIDTH (1),    // bus_req
+      .PROBE14_WIDTH (1),    // bus_rhwl
+      .PROBE15_WIDTH (32),   // bus_address
+      .PROBE16_WIDTH (32),   // bus_rdata
+      .PROBE17_WIDTH (1),    // bus_ack
+      .PROBE18_WIDTH (32),   // bus_wdata
+      .PROBE19_WIDTH (1),    // cpu_rd_empty
+      .PROBE20_WIDTH (1),    // cpu_wr_full
+      .PROBE21_WIDTH (1),    // cpu_rd_rpkt_pop_ind
+      .PROBE22_WIDTH (1),    // cpu_wr_wpkt_push_ind
+      .PROBE23_WIDTH (1),    // cpu_wr_wen_ind
+      .PROBE24_WIDTH (1),    // cpu_rd_ren
+      .PROBE25_WIDTH (4),    // led_o (led_val)
+      .PROBE26_WIDTH (8),    // rx_afifo_full_cnt[7:0]
+      .PROBE27_WIDTH (8),    // rx_correct_pkt_cnt[7:0]
+      .PROBE28_WIDTH (8),    // rx_crc_err_pkt_cnt[7:0]
+      .PROBE29_WIDTH (8),    // recv_pkt_drop_cnt[7:0]
+      .PROBE30_WIDTH (1),    // mac_in_full
+      .PROBE31_WIDTH (1)     // gmii_rx_er
+  ) u_ila_core0 (
+      .sample_clk   (clk_50m),
+      .rst_in       (sys_rst_n),
+      .jtag_clk     (ila_jtag_clk),
+      .probe0       (gmii_rx_dv),
+      .probe1       (gmii_rxd),
+      .probe2       (gmii_tx_en),
+      .probe3       (gmii_txd),
+      .probe4       (mac_rx_sop),
+      .probe5       (mac_rx_en),
+      .probe6       (mac_rx_data),
+      .probe7       (mac_rx_eop),
+      .probe8       (mac_tx_sop),
+      .probe9       (mac_tx_en),
+      .probe10      (mac_tx_data),
+      .probe11      (mac_tx_eop),
+      .probe12      (mac_tx_err),
+      .probe13      (bus_req),
+      .probe14      (bus_rhwl),
+      .probe15      (bus_address),
+      .probe16      (bus_rdata),
+      .probe17      (bus_ack),
+      .probe18      (bus_wdata),
+      .probe19      (cpu_rd_empty),
+      .probe20      (cpu_wr_full),
+      .probe21      (cpu_rd_rpkt_pop_ind),
+      .probe22      (cpu_wr_wpkt_push_ind),
+      .probe23      (cpu_wr_wen_ind),
+      .probe24      (cpu_rd_ren),
+      .probe25      (led_val),
+      .probe26      (rx_afifo_full_cnt[7:0]),
+      .probe27      (rx_correct_pkt_cnt[7:0]),
+      .probe28      (rx_crc_err_pkt_cnt[7:0]),
+      .probe29      (recv_pkt_drop_cnt),
+      .probe30      (mac_in_full),
+      .probe31      (gmii_rx_er),
+      .trigger_in   (1'b0),
+      .trigger_out  (),
+      .armed_out    (),
+      .reg_we       (ila_we[0]),
+      .reg_re       (ila_re[0]),
+      .reg_addr     (ila_addr),
+      .reg_wdata    (ila_wdata),
+      .reg_rdata    (ila_rdata[31:0])
+  );
+
+  //============================================================================
+  // 7b. fpga_ila 核 #1 — 13 探针, 41bit, sample_clk = clk_125m
+  //     只抓 SDR 上游信号 (rgmii_gmii_bridge 之前), 时钟域 = clk_125m。
+  //     不碰 rgmii_txd/rgmii_txc 等 DDR 引脚 (那是 clk_125m_tx 域, soft ILA 不采)。
+  //     jtag_clk 仍接 ila_jtag_clk (= hub 的 50m), 与 sample_clk 异步 (内部 CDC)。
+  //============================================================================
+  soft_ila_top #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (1),
+      .SAMPLE_HZ     (125_000_000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (13),
+      .PROBE0_WIDTH  (1),    // gmii_rx_dv
+      .PROBE1_WIDTH  (8),    // gmii_rxd
+      .PROBE2_WIDTH  (1),    // mac_rx_sop
+      .PROBE3_WIDTH  (1),    // mac_rx_en
+      .PROBE4_WIDTH  (8),    // mac_rx_data
+      .PROBE5_WIDTH  (1),    // mac_rx_eop
+      .PROBE6_WIDTH  (1),    // gmii_tx_en
+      .PROBE7_WIDTH  (8),    // gmii_txd
+      .PROBE8_WIDTH  (1),    // mac_tx_sop
+      .PROBE9_WIDTH  (1),    // mac_tx_en
+      .PROBE10_WIDTH (8),    // mac_tx_data
+      .PROBE11_WIDTH (1),    // mac_tx_eop
+      .PROBE12_WIDTH (1)     // mac_tx_err
+  ) u_ila_core1 (
+      .sample_clk   (clk_125m),
+      .rst_in       (sys_rst_n),
+      .jtag_clk     (ila_jtag_clk),
+      .probe0       (gmii_rx_dv),
+      .probe1       (gmii_rxd),
+      .probe2       (mac_rx_sop),
+      .probe3       (mac_rx_en),
+      .probe4       (mac_rx_data),
+      .probe5       (mac_rx_eop),
+      .probe6       (gmii_tx_en),
+      .probe7       (gmii_txd),
+      .probe8       (mac_tx_sop),
+      .probe9       (mac_tx_en),
+      .probe10      (mac_tx_data),
+      .probe11      (mac_tx_eop),
+      .probe12      (mac_tx_err),
+      .trigger_in   (1'b0),
+      .trigger_out  (),
+      .armed_out    (),
+      .reg_we       (ila_we[1]),
+      .reg_re       (ila_re[1]),
+      .reg_addr     (ila_addr),
+      .reg_wdata    (ila_wdata),
+      .reg_rdata    (ila_rdata[63:32])
+  );
+
+  //============================================================================
+  // 8. fpga_ila Hub — UART 传输, 板载串口 L21/M21
+  //============================================================================
+  ila_hub_top #(
+      .TRANSPORT_EN (ILA_TRANSPORT_EN),
+      .NUM_CORES    (ILA_NUM_CORES),
+      .ILA_CLK_HZ   (ILA_CLK_HZ),
+      .ILA_BAUD     (ILA_BAUD)
+  ) u_ila_debug (
+      .clk           (clk_50m),
+      .rst           (~sys_rst_n),
+      // UART (板载串口)
+      .uart_rxd      (ila_uart_rx),    // 固定接板载 uart_rx
+      .uart_txd      (ila_uart_tx),    // 固定驱动板载 uart_tx
+      // ETH — 不用
+      .gmii_rx_clk   (1'b0),
+      .gmii_rxd      (8'b0),
+      .gmii_rx_dv    (1'b0),
+      .gmii_txd      (),
+      .gmii_tx_en    (),
+      // 核总线
+      .core_reg_we   (ila_we),
+      .core_reg_re   (ila_re),
+      .core_reg_addr (ila_addr),
+      .core_reg_wdata(ila_wdata),
+      .core_reg_rdata(ila_rdata),
+      // JTAG — 不需要 (无 BSCANE2)
+      .core_jtag_clk (ila_jtag_clk),
+      .core_jtag_rst ()
+  );
+
+  //============================================================================
   // MDIO — 暂不连接 (后续扩展)
   //============================================================================
   assign Eth0_MDC  = 1'b0;
   assign Eth0_MDIO = 1'bz;
-
-  //============================================================================
-  // fpga_ila — 软逻辑分析仪 (UART 传输, 921600 bps)
-  // 参考 RiscV_WebSoC_3 接法: UART 固定给 ILA, CPU 侧 RX 置空闲
-  //============================================================================
-  wire ila_uart_rx = uart_rx;   // 板载串口 RX 固定给 ILA
-  wire cpu_uart_rx = 1'b1;      // CPU 侧 RX 置空闲 (固件改由 JTAG 上传)
-  wire cpu_uart_tx;             // CPU UART TX 未接出
-  wire ila_uart_tx;             // ILA UART TX
-  assign uart_tx = ila_uart_tx; // 板载串口 TX 固定由 ILA 驱动
-
-  localparam ILA_NUM_CORES    = 1;
-  localparam ILA_CLK_HZ       = 50_000_000;
-  localparam ILA_BAUD         = 921600;
-
-  wire [ILA_NUM_CORES-1:0]     ila_we;
-  wire [ILA_NUM_CORES-1:0]     ila_re;
-  wire [15:0]                  ila_addr;
-  wire [31:0]                  ila_wdata;
-  wire [ILA_NUM_CORES*32-1:0]  ila_rdata;
-  wire                         ila_jtag_clk, ila_jtag_rst;
-
-  soft_ila_top #(
-      .CORE_EN(1), .DATA_DEPTH(2048), .MAX_WINDOWS(1),
-      .SAMPLE_HZ(50000000), .RST_ACTIVE_LOW(1), .NUM_PROBES(5),
-      .PROBE0_WIDTH(32), .PROBE1_WIDTH(32),
-      .PROBE2_WIDTH(1),  .PROBE3_WIDTH(1),  .PROBE4_WIDTH(4),
-      .EXT_TRIG_EN(1)
-  ) u_ila_core0 (
-      .sample_clk(clk_50m), .rst_in(sys_rst_n),
-      .probe0 (bus_address),  .probe1 (bus_wdata),
-      .probe2 (bus_req),      .probe3 (bus_ack),
-      .probe4 (led_val),
-      .trigger_in(1'b0), .trigger_out(), .armed_out(),
-      .reg_we(ila_we[0]), .reg_re(ila_re[0]),
-      .reg_addr(ila_addr), .reg_wdata(ila_wdata),
-      .reg_rdata(ila_rdata[0*32 +: 32]),
-      .jtag_clk(ila_jtag_clk)
-  );
-
-  ila_hub_top #(
-      .TRANSPORT_EN(3'b001), .NUM_CORES(ILA_NUM_CORES),
-      .ILA_CLK_HZ(ILA_CLK_HZ), .ILA_BAUD(ILA_BAUD),
-      .REG_HOLD(4)
-  ) u_ila_hub (
-      .clk(clk_50m), .rst(~sys_rst_n),
-      .uart_rxd(ila_uart_rx), .uart_txd(ila_uart_tx),
-      .gmii_rx_clk(1'b0), .gmii_rxd(8'd0), .gmii_rx_dv(1'b0),
-      .gmii_txd(), .gmii_tx_en(),
-      .core_reg_we(ila_we), .core_reg_re(ila_re),
-      .core_reg_addr(ila_addr), .core_reg_wdata(ila_wdata),
-      .core_reg_rdata(ila_rdata),
-      .core_jtag_clk(ila_jtag_clk), .core_jtag_rst(ila_jtag_rst)
-  );
 
 endmodule
