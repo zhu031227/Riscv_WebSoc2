@@ -289,7 +289,7 @@ module webserver_cpu_top #(
       .cpu_buf_block_addr_width(3)
   ) u_cpu_channel (
       .clk             (clk_125m),
-      .reset_l         (sys_rst_n),
+      .reset_l         (sys_rst_n & riscv_reset_l[0]),
       .cpu_clk         (clk_50m),
       // MAC RX
       .mac_rx_sop      (mac_rx_sop),

@@ -456,16 +456,27 @@ run_hw_axi led_txn
 
 **验证对照**：复位 1 秒 → ping 通；复位 50 秒 → ping 不通。和写指令 RAM 无关（写 1 字也不破坏网络）。
 
-**解决**：写固件期间**不复位 CPU**（纯硬件 bit 的 BRAM 全 0，CPU 跑非法指令 trap 循环，不发总线请求；双口 RAM 口 1 取指 / 口 2 写互不冲突），写完再**短复位 + 释放**：
+**最终解决**（改 RTL，根治）：让网络 FIFO 的复位也跟随 CPU 复位，这样写固件期间复位 CPU 时，RX FIFO 也保持清空、不会被 PHY 广播包写满。
+
+`rtl/webserver_cpu_top.v` 里 cpu_channel 的复位改一行：
+
+```verilog
+.reset_l(sys_rst_n & riscv_reset_l[0]),   // 原为 sys_rst_n
+```
+
+然后 `jtag_load_fw.tcl` 恢复用**「复位写固件」**（复位期间 CPU 不取指、网络 FIFO 保持清空，无双口冲突）：
 
 ```tcl
-# ① 直接写固件 (不复位)
-source fw_axi_body.tcl
-# ② 短复位 + 释放
+# ① 按住复位 (0x100=0, 同时复位网络 FIFO)
 create_hw_axi_txn hold $hw_axi -type write -address 0x100 -data 0x0 -len 1
 run_hw_axi hold
+# ② 逐字写固件
+source fw_axi_body.tcl
+# ③ 释放复位 (0x100=1)
 create_hw_axi_txn rel $hw_axi -type write -address 0x100 -data 0x1 -len 1
 run_hw_axi rel
 ```
 
-实测：`FW VERIFY OK: 2619 words all match`，ping 稳定 0% 丢包。
+实测：`FW VERIFY OK: 2619 words all match`，ping 稳定 0% 丢包（首包丢、后续通）。
+
+> 备注：早期试过「写固件期间不复位 CPU（跑 trap）」方案，它**不可靠**——写固件 ~50 秒期间 CPU 不读 FIFO、FIFO 仍会被广播包写满，只是碰运气（网络广播包少时能通）。真正可靠的是上面「改 RTL + 复位写固件」。
