@@ -14,7 +14,7 @@
 #include "inc/lcpu_general.h"
 #include "inc/arp.h"
 
-void arp_reply()
+void arp_reply() 
 {
     uint16 i;
     uint16 arp_type = 0;

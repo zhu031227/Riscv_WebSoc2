@@ -38,7 +38,7 @@ module webserver_cpu_top #(
   //============================================================================
   // 参数
   //============================================================================
-  localparam lcpu_type       = "uart";
+  localparam lcpu_type       = "xilinx";
   localparam uart_baud_rate  = 115200;
   localparam riscv_inst_en   = 1;
   localparam instr_databits  = 32;

@@ -102,3 +102,9 @@ usage_statistics_webtalk.*
 *.mmi
 *.xci
 obj_dir/
+
+# JTAG 外灌固件相关 (生成物/备份)
+rtl/fpga_build_time.v
+*.backup_*
+build_xilinx/fw_axi_body.tcl
+build_xilinx/fw_expected_words.txt

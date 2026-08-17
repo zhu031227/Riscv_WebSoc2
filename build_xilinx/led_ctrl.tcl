@@ -14,6 +14,7 @@ open_hw_manager
 connect_hw_server
 current_hw_target [lindex [get_hw_targets] 0]
 open_hw_target
+refresh_hw_device [current_hw_device]
 
 # 查找 JTAG-AXI 实例
 set hw_axis [get_hw_axis -quiet]
@@ -25,12 +26,8 @@ if {[llength $hw_axis] == 0} {
 puts "Found HW AXI: $hw_axis"
 
 # 写 LED 寄存器 (地址 0x10)
-set txn [create_hw_axi_txn -quiet -type write -address 0x00000010 -data [format 0x%08X $led_value] -len 1 [lindex $hw_axis 0]]
-if {$txn == ""} {
-    puts "ERROR: 创建 AXI 事务失败"
-} else {
-    run_hw_axi $txn
-    puts "LED 寄存器写入成功: 0x[format %02X $led_value]"
-}
+create_hw_axi_txn led_txn [lindex $hw_axis 0] -type write -address 0x00000010 -data [format 0x%08X $led_value] -len 1
+run_hw_axi led_txn
+puts "LED 寄存器写入成功: 0x[format %02X $led_value]"
 
 close_hw_manager
