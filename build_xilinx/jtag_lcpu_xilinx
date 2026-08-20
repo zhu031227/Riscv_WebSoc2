@@ -1,0 +1,35 @@
+# jtag_lcpu_xilinx — JTAG-AXI 读写 proc 库 (jwrite / rd32 / jread)
+# ================================================================
+# 依赖全局变量 ::hw_axi —— 调用方在 source 本文件前必须先:
+#     set hw_axi [lindex [get_hw_axis -quiet] 0]
+# 用法: 脚本里 source 本文件后, 直接调 jwrite / rd32 / jread
+# 地址约定: AXI 地址 = LCPU 字地址 (不乘 4), 0x100=复位, 0x10000+i=指令RAM, 0x10=LED
+
+# 写一个字
+proc jwrite { address data } {
+    global hw_axi
+    create_hw_axi_txn write_txn $hw_axi -type write \
+        -address [format "0x%08X" $address] -data [format "0x%08X" $data] -len 1
+    run_hw_axi write_txn
+    delete_hw_axi_txn write_txn
+}
+
+# 读一个字, 返回 get_property DATA 的原始字符串 (可能带 0x/前导零/大小写不一)
+proc rd32 { address } {
+    global hw_axi
+    create_hw_axi_txn read_txn $hw_axi -type read \
+        -address [format "0x%08X" $address] -len 1
+    run_hw_axi read_txn
+    set rv [get_property DATA [get_hw_axi_txn read_txn]]
+    delete_hw_axi_txn read_txn
+    return $rv
+}
+
+# 读一串字 (第二个参数 = 数量, 默认 1), 返回 list
+proc jread { address {n 1} } {
+    set out {}
+    for {set i 0} {$i < $n} {incr i} {
+        lappend out [rd32 [expr {$address + $i}]]
+    }
+    return $out
+}

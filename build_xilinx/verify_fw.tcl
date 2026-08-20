@@ -26,6 +26,7 @@ if {[llength $hw_axis] == 0} {
     exit 1
 }
 set hw_axi [lindex $hw_axis 0]
+source [file join $script_dir jtag_lcpu_xilinx]
 
 # 读期望值
 set expect_file [file join $script_dir fw_expected_words.txt]
@@ -42,11 +43,13 @@ set n [llength $expect_words]
 set mismatch 0
 puts "Verifying $n words ..."
 
+# 用 jread 一次回读全部 (与 jwrite 对称), 再逐字比对
+puts "  reading back $n words ..."
+set got_list [jread 0x10000 $n]
+puts "  read done, comparing ..."
+
 for {set i 0} {$i < $n} {incr i} {
-    set addr [format 0x%08X [expr 0x10000 + $i]]
-    create_hw_axi_txn vtx$i $hw_axi -type read -address $addr -len 1
-    run_hw_axi vtx$i
-    set got [normhex [get_property DATA [get_hw_axi_txn vtx$i]]]
+    set got [normhex [lindex $got_list $i]]
     set exp [normhex [lindex $expect_words $i]]
     if {$got != $exp} {
         puts "MISMATCH word\[$i\]: expect 0x$exp got 0x$got"

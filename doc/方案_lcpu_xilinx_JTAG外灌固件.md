@@ -211,7 +211,18 @@ cd build_xilinx && vivado -mode batch -source program.tcl
 
 ### Step 5 验证 JTAG-AXI 桥通（最小写，里程碑 M1）
 
-复用现成的 `build_xilinx/led_ctrl.tcl`（已适配好地址 `0x10`）：
+**方式 A（推荐，交互式）**：用 4.0 的 proc 库，进入 Tcl 交互 shell 后直接 `jwrite`：
+
+```bash
+cd build_xilinx
+source ~/Xilinx/2024.1/Vivado/2024.1/settings64.sh
+vivado -mode tcl
+# 提示符里敲：
+source jtag_lcpu_xilinx
+jwrite 0x10 0x05        # 写 LED = LED0+LED2
+```
+
+**方式 B（批处理）**：复用现成的 `led_ctrl.tcl`：
 
 ```bash
 cd build_xilinx && vivado -mode batch -source led_ctrl.tcl
@@ -230,24 +241,15 @@ open_hw_manager
 connect_hw_server
 current_hw_target [lindex [get_hw_targets] 0]
 open_hw_target
-set hw_axi [lindex [get_hw_axis -quiet] 0]
-if {$hw_axi == ""} { puts "ERROR: 无 JTAG-AXI 实例"; exit 1 }
+source jtag_lcpu_xilinx      ;# 载入 rd32
 
 # ① FPGA 编译版本号（只读 = 纯硬件 bit 的身份签名）
-create_hw_axi_txn d0 [get_hw_axis] -type read -address 0x00000000 -len 1
-run_hw_axi d0
-puts "fpga_build_date = 0x[get_property DATA [get_hw_axi_txn d0]]"
-create_hw_axi_txn t0 [get_hw_axis] -type read -address 0x00000001 -len 1
-run_hw_axi t0
-puts "fpga_build_time = 0x[get_property DATA [get_hw_axi_txn t0]]"
+puts "fpga_build_date = [rd32 0x0]"
+puts "fpga_build_time = [rd32 0x1]"
 
 # ② 状态 / 复位默认值
-create_hw_axi_txn pll [get_hw_axis] -type read -address 0x00000011 -len 1
-run_hw_axi pll
-puts "pll_locked = 0x[get_property DATA [get_hw_axi_txn pll]]"
-create_hw_axi_txn led [get_hw_axis] -type read -address 0x00000010 -len 1
-run_hw_axi led
-puts "led(复位默认) = 0x[get_property DATA [get_hw_axi_txn led]]"
+puts "pll_locked      = [rd32 0x11]"
+puts "led(复位默认)   = [rd32 0x10]"
 
 close_hw_manager
 ```
@@ -313,13 +315,71 @@ vivado -mode batch -nojournal -nolog -source jtag_load_fw.tcl
 
 ## 四、新脚本规格
 
+### 4.0 复用现成的 JTAG-AXI proc 库（来自 `ip_lcpu` 参考项目）
+
+**不必从零写读写函数**——参考项目 `~/work/FPGA_Prj/ip_lcpu/tcl/jtag_lcpu_xilinx` 已经封装好了 JTAG-AXI 的原子操作。把这个文件**复制**到 `build_xilinx/jtag_lcpu_xilinx`，之后所有脚本 `source` 它即可。
+
+关键点：JTAG-AXI 桥的实例名是**固定的 `hw_axi_1`**（Vivado 给第一个 `jtag_axi_0` 自动分配），用 `[get_hw_axis hw_axi_1]` 精确匹配，不要盲取第一个。
+
+```tcl
+# build_xilinx/jtag_lcpu_xilinx —— 从 ip_lcpu 参考项目复制，去掉开头 4 行连接操作后保留以下 proc
+
+# ① 写一个字（address/data 为字地址，自动补 8 位 hex）
+proc jwrite { address data } {
+    set address [format "%08x" $address]
+    set data    [format "%08x" $data]
+    create_hw_axi_txn write_txn [get_hw_axis hw_axi_1] -address $address -data $data -type write
+    run_hw_axi  write_txn
+    set write_value [lindex [report_hw_axi_txn write_txn] 1]
+    delete_hw_axi_txn write_txn
+}
+
+# ② 读一个字，返回 0x 前缀的十六进制串
+proc rd32 { address } {
+    set address [format "%08x" $address]
+    create_hw_axi_txn read_txn [get_hw_axis hw_axi_1] -address $address -type read
+    run_hw_axi  read_txn
+    set read_value [lindex [report_hw_axi_txn read_txn] 1]
+    delete_hw_axi_txn read_txn
+    return 0x$read_value
+}
+
+# ③ 读一串字（第二个参数 = 数量，如 jread 0x10000 2688 回读整段固件）
+proc jread { address args } {
+    set len1 [llength $args]
+    if {$len1 == 0} {
+        rd32 $address
+    } elseif {$len1 == 1} {
+        set val [lindex $args 0]
+        for {set i 0} {$i < $val} {incr i} {
+            after 100
+            rd32 [expr $address+$i]
+        }
+    }
+}
+```
+
+**用法**（交互式，适合手动调试）：
+
+```bash
+cd build_xilinx
+source ~/Xilinx/2024.1/Vivado/2024.1/settings64.sh
+vivado -mode tcl          # 进入 Tcl 交互 shell
+# 然后手动敲：
+source jtag_lcpu_xilinx   # 载入 jwrite/rd32/jread
+jwrite 0x10 0x05          # 写 LED → 桥通验证
+rd32   0x0                # 读版本号 → 验明正身
+```
+
+> 注意：`jtag_lcpu_xilinx` 原文件**开头 4 行是连接操作**（`open_hw_manager` 等），单独 `source` 时它们会自动执行；若脚本里已连过，可删除这 4 行只保留 proc 定义。
+
 ### 4.1 `c_build/bin_to_jtag_tcl.py`
 
 | 项 | 说明 |
 |----|------|
 | 输入 | `c_build/out/firmware.bin` |
 | 输出 | `build_xilinx/fw_axi_body.tcl`（纯 AXI 事务段，供 `jtag_load_fw.tcl` source） |
-| 逻辑 | 复用 `bin_to_tcl.py` 的「字节→小端字 + 跳过尾部全零」逻辑；每字生成一对 `create_hw_axi_txn w$i -address 0x10000+i -data <8位hex> -len 1 -type write` + `run_hw_axi w$i` |
+| 逻辑 | 复用 `bin_to_tcl.py` 的「字节→小端字 + 跳过尾部全零」逻辑；每字生成一行 `jwrite 0x10000+i 0x<8位hex>`（依赖 4.0 的 proc 库） |
 | 字节序 | `struct.unpack('<I', chunk)[0]`（与 `upload_fw.py` 一致，RISC-V 小端） |
 | 地址 | 字基址 `0x10000`；固件 ~2688 字（尾部全零跳过） |
 
@@ -330,23 +390,19 @@ open_hw_manager
 connect_hw_server
 current_hw_target [lindex [get_hw_targets] 0]
 open_hw_target
-set hw_axi [lindex [get_hw_axis -quiet] 0]
-if {$hw_axi == ""} { puts "ERROR: 无 JTAG-AXI 实例"; exit 1 }
+source jtag_lcpu_xilinx      ;# 载入 jwrite/rd32（其开头 4 行连接操作已执行/可省略）
 
 # ① 按住 CPU 复位
-create_hw_axi_txn hold [get_hw_axis] -type write -address 0x00000100 -data 0x00000000 -len 1
-run_hw_axi hold
+jwrite 0x100 0x0
 
-# ② 逐字写固件（source 生成的 fw_axi_body.tcl）
+# ② 逐字写固件（source 生成的 fw_axi_body.tcl，内部全是一行行 jwrite）
 source fw_axi_body.tcl
 
 # ③ 释放复位
-create_hw_axi_txn rel [get_hw_axis] -type write -address 0x00000100 -data 0x00000001 -len 1
-run_hw_axi rel
+jwrite 0x100 0x1
 
 # ④ 验证：写 LED 全亮
-create_hw_axi_txn led [get_hw_axis] -type write -address 0x00000010 -data 0x0000000F -len 1
-run_hw_axi led
+jwrite 0x10 0xF
 
 close_hw_manager
 ```
@@ -360,7 +416,7 @@ close_hw_manager
 | 项 | 说明 |
 |----|------|
 | 输入 | `c_build/out/firmware.bin`（由 `bin_to_jtag_tcl.py` 顺带输出每个字的值，或脚本内直接读 bin 解析） |
-| 逻辑 | 对指令 RAM 地址 `0x10000+i` 逐字 `-type read`，与 firmware.bin 第 i 个 `<I` 小端字比对；不一致打印 i / 期望 / 实际 |
+| 逻辑 | 对指令 RAM 地址 `0x10000+i` 逐字 `rd32`（或 `jread 0x10000 N` 一次回读 N 字），与 firmware.bin 第 i 个 `<I` 小端字比对；不一致打印 i / 期望 / 实际 |
 | 输出 | 全对 → `FW VERIFY OK`；有差异 → 打印差异行并 `exit 1` |
 
 性能参考（写入侧）：逐字 2688 事务 ≈ **几十秒**，可接受。优化项（二期）：只写有效字已内置；尝试 `-len N` 突发（⚠️ `axi2lcpu` 是简单 FSM，一次一拍，突发需实测，默认 `-len 1`）。
@@ -390,6 +446,7 @@ close_hw_manager
 | `build_xilinx/build.tcl` | 改 | +`read_ip jtag_axi_0.xci` |
 | `build_xilinx/program.tcl` | 改 | `PROGRAM.FILE` 指向纯硬件 `RiscV_WebSoC.bit` |
 | `build_xilinx/jtag_axi_0.xci` | 复用 | JTAG→AXI 桥 IP（PART 已核实） |
+| `build_xilinx/jtag_lcpu_xilinx` | 复制 | proc 库（jwrite/rd32/jread），从 `ip_lcpu/tcl/` 复制 |
 | `build_xilinx/led_ctrl.tcl` | 复用 | 桥通验证模板 |
 | `build_xilinx/read_back.tcl` | 新 | 灌前版本号 + 状态读回验证（Step 6） |
 | `build_xilinx/verify_fw.tcl` | 新 | 灌后指令 RAM 回读比对固件（Step 7） |

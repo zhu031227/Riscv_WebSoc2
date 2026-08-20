@@ -2,12 +2,6 @@
 # 一次确认四件事: ① JTAG-AXI 读路径通 ② 地址映射对 ③ 烧的是正确纯硬件 bit ④ 时钟域正常
 # 用法: cd build_xilinx && vivado -mode batch -nojournal -nolog -source read_back.tcl
 
-proc rd {name hw_axi addr} {
-    create_hw_axi_txn $name $hw_axi -type read -address $addr -len 1
-    run_hw_axi $name
-    return [get_property DATA [get_hw_axi_txn $name]]
-}
-
 # 把 get_property DATA 的返回(可能带 0x/前导零/大小写不一)规范成整数
 proc hexval {s} {
     set s [string toupper [string trim $s]]
@@ -29,16 +23,22 @@ if {[llength $hw_axis] == 0} {
     exit 1
 }
 set hw_axi [lindex $hw_axis 0]
+set script_dir [file dirname [file normalize [info script]]]
+source [file join $script_dir jtag_lcpu_xilinx]
 
 # ① FPGA 编译版本号 (只读 = 纯硬件 bit 的身份签名)
-set build_date [rd d0 $hw_axi 0x00000000]
-set build_time [rd t0 $hw_axi 0x00000001]
+#    jread 连续读 0x0(日期)、0x1(时间) 两个
+set ver [jread 0x0 2]
+set build_date [lindex $ver 0]
+set build_time [lindex $ver 1]
 puts "fpga_build_date = 0x[string toupper [string trim $build_date]]"
 puts "fpga_build_time = 0x[string toupper [string trim $build_time]]"
 
 # ② 状态 / 复位默认值
-set pll [rd pll $hw_axi 0x00000011]
-set led [rd led $hw_axi 0x00000010]
+#    jread 连续读 0x10(LED)、0x11(pll_locked) 两个
+set st [jread 0x10 2]
+set led [lindex $st 0]
+set pll [lindex $st 1]
 puts "pll_locked      = 0x[string toupper [string trim $pll]]"
 puts "led(复位默认)   = 0x[string toupper [string trim $led]]"
 
