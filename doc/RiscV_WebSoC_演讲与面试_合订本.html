@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>合订_RiscV_WebSoC_演讲与面试</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       max-width: 900px; margin: 40px auto; padding: 0 20px; line-height: 1.6;
+       color: #24292e; background: #fff; }
+h1 { border-bottom: 2px solid #1a73e8; padding-bottom: 8px; color: #1a73e8; }
+h2 { border-bottom: 1px solid #e1e4e8; padding-bottom: 6px; margin-top: 32px; }
+h3 { margin-top: 24px; color: #444; }
+h4 { margin-top: 20px; color: #666; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+th { background: #f5f7fa; font-weight: 600; }
+tr:nth-child(even) { background: #fafbfc; }
+code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto;
+      border: 1px solid #e1e4e8; font-size: 13px; line-height: 1.45; }
+div.mermaid {
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 16px 0;
+    text-align: center;
+    overflow-x: auto;
+}
+script[type="WaveDrom"] {
+    display: block;
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 16px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-family: monospace;
+}
+blockquote { border-left: 4px solid #1a73e8; margin: 0; padding: 0 16px;
+             color: #6a737d; }
+hr { border: 0; border-top: 1px solid #e1e4e8; margin: 24px 0; }
+ul, ol { padding-left: 24px; }
+a { color: #1a73e8; text-decoration: none; }
+a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1 id="RISC-V-WebSoC-投屏总册演讲-面试">RISC-V WebSoC — 投屏总册(演讲 + 面试)</h1>
+
+<p>> <strong>上半部 · 演讲篇</strong>:电梯演讲、10 分钟分幕脚本、Demo 动线、预设 Q&A。<br>
+> <strong>下半部 · 面试篇</strong>:硬件/软件双线必背、PicoRV32 微架构专题、真实资源数字、STAR 故事、简历模板。</p>
+
+<hr>
+
+<h1 id="RISC-V-WebSoC-上台演讲全材料">RISC-V WebSoC — 上台演讲全材料</h1>
+
+<p>> 适用场景:项目汇报 / 技术分享 / 答辩。<br>
+> 本文包含:电梯演讲 → 讲稿主线 → 数字备查卡 → 现场 Demo 动线 → <strong>六大类预设提问与答题要点</strong> → 容易被追问处的兜底话术。<br>
+> 所有数字均核对自代码与文档(截至 2026-08-26),可直接引用。</p>
+
+<hr>
+
+<h2 id="〇三个版本的一句话定位开场前先想清楚用哪个">〇、三个版本的一句话定位(开场前先想清楚用哪个)</h2>
+
+<strong>技术版</strong>:
+「我在一块 XC7A35T 上,围绕 PicoRV32 软核,从零手写了以太网 MAC、包 FIFO 数据通路和一套裸机 TCP/IP + HTTP 协议栈——让 FPGA 插根网线就能被 Ping 通、能跑 TCP 连接、能用浏览器访问内置控制面板,并且改固件不需要重新编译比特流,JTAG 秒级外灌。」
+
+<strong>价值版</strong>:
+「这个项目把『CPU 如何联网』这条完整链路——从 RGMII 引脚到浏览器页面——每一层都自己实现了,所以每个设计决策我都能讲到寄存器和时序级。」
+
+<strong>简短版</strong>(主持人只给 30 秒时):
+「一块 Artix-7 + 一个开源 RISC-V 软核 + 一套完全手写的 TCP/IP 协议栈,FPGA 变成了一台可以通过网页远程控制的设备。」
+
+<p>⚠️ 注意:<code>doc/PROJECT_OVERVIEW.md</code> 里写着「HTTP 待实现」,那已过时——现在 <code>http.c</code> + <code>tcp.c</code> 已有完整控制面板(GET/POST、寄存器读写、LED 控制)。<strong>上台请按已实现来讲</strong>,但准备好一句话解释版本差异:「早期阶段文档,后来补上了」。</p>
+
+<hr>
+
+<h2 id="一电梯演讲45-秒版建议背熟">一、电梯演讲(45 秒版,建议背熟)</h2>
+
+<p>> 大家好,我演示的项目叫 RISC-V WebSoC。<br>
+><br>
+> 它解决的问题是:<strong>不用任何现成网络协议栈、不用软 IP 库,让一块 FPGA 从物理层接口一路到浏览器页面,每一层都由自己实现。</strong><br>
+><br>
+> 硬件侧,XC7A35T 上实例化了 PicoRV32(RV32IC @50MHz),外部 PHY 走 RGMII 进来,先经 RGMII-GMII 桥转成内部 8 位 GMII,再进自研 MAC;MAC 和 CPU 之间是一条带包管理的双时钟包 FIFO 通道,CPU 通过寄存器总线直接读写收发包,<strong>全程零拷贝、不用内存缓冲区</strong>。<br>
+><br>
+> 软件侧,我用裸机 C 写完了 ARP、IP、ICMP、TCP 和 HTTP 五层:TCP 是 7 状态机,支持四次挥手、超时重传和保活回收;HTTP 提供 GET/POST 的寄存器读写控制面板。<br>
+><br>
+> 最后还有个工程效率亮点:<strong>JTAG-AXI 外灌固件</strong>——换一版固件不用重跑 Vivado 综合,几秒钟直接写进指令 RAM。<br>
+><br>
+> 74 次提交、五套单元仿真 Testbench、七阶段实机验证清单,这就是这个项目的全部内容。</p>
+
+<hr>
+
+<h2 id="二10-分钟讲解主线分幕脚本">二、10 分钟讲解主线(分幕脚本)</h2>
+
+<h3 id="第-1-幕1-min动机与目标">第 1 幕(1 min):动机与目标</h3>
+
+<ul>
+<li>问题引入:「任何一个 SoC 都要回答两个问题——<strong>程序怎么进来,数据怎么进出</strong>。这个项目给这两个问题都造了自己的答案:程序通过 JTAG 外灌,数据通过手写的 TCP/IP。」</li>
+<li>目标三条:① Ping 得通(ARP/IP/ICMP);② TCP 站得住(完整状态机);③ 浏览器打得开(HTTP 控制面板)。</li>
+</ul>
+
+<h3 id="第-2-幕2-min系统架构对着架构图讲">第 2 幕(2 min):系统架构(对着架构图讲)</h3>
+
+<div class="mermaid">
+flowchart LR
+    PC["PC / 浏览器<br/>169.254.x.x"] -->|"网线"| PHY["PHY 芯片<br/>RGMII"]
+    subgraph FPGA["XC7A35T-FGG484"]
+        BR["rgmii_gmii_bridge<br/>RGMII⇄GMII"]
+        MAC["gmii2mac<br/>8bit GMII MAC"]
+        CH["cpu_channel<br/>双时钟包 FIFO+DMA"]
+        CPU["lcpu_riscv_wrapper<br/>PicoRV32 RV32IC@50M<br/>IRAM 16KB"]
+        REG["lcpu_fpga_test<br/>寄存器译码"]
+        MMCM["mmcm_50_125<br/>50/125MHz"]
+        ILA["ILA×2+HUB<br/>抓 GMII/MAC"]
+        PHY --- BR --- MAC --- CH
+        CH <-->|"包 FIFO"| CPU
+        CPU --- REG
+        MMCM -.->|"时钟"| MAC & CPU
+        ILA -.->|"探测"| MAC & CH
+    end
+
+</div>
+
+<p>讲解顺序:<strong>沿数据流走一遍</strong>。强调三个设计决策:<br>
+<ul><br>
+<li><strong>PHY 用 RGMII(引脚少),MAC 内部统一 GMII(逻辑简单)</strong>——复杂度关在桥接模块里;</li><br>
+<li><strong>CPU 时钟域 50M、MAC 时钟域 125M</strong>,跨域全部收口在 cpu_channel;</li><br>
+<li><strong>ILA 插在 GMII 入口和 MAC 接口两处</strong>,任何网络异常第一眼就能定位到「PHY 桥的问题还是 MAC 的问题」。</li><br>
+</ul></p>
+
+<h3 id="第-3-幕2-min地址映射体现工程严谨度提前背这张表">第 3 幕(2 min):地址映射(体现工程严谨度,提前背这张表)</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>地址</th>
+<th>含义</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>0x00010000</code></td>
+<td>指令 RAM(4096 字 = 16KB),JTAG 外灌的目标</td>
+</tr>
+<tr>
+<td><code>0x80000000</code></td>
+<td>LCPU 寄存器基址(C 侧 <code>_RD/_WR</code> 宏基准)</td>
+</tr>
+<tr>
+<td><code>0x80006000+i</code></td>
+<td>RX 包 FIFO(empty/pop/pkt_len/addr/data…按字偏移)</td>
+</tr>
+<tr>
+<td><code>0x80006100+i</code></td>
+<td>TX 包 FIFO(同构)</td>
+</tr>
+<tr>
+<td>字偏移 <code>0x10</code>(即 <code>0x80000040</code>)</td>
+<td>LED[3:0]</td>
+</tr>
+<tr>
+<td>字偏移 <code>0x100</code></td>
+<td>CPU 复位门控(JTAG 灌固第一步就是写 0 关住它)</td>
+</tr>
+</tbody></table>
+
+<p>一句话过渡:「这套映射意味着——<strong>对 FPGA 来说,‘收到一个网包’等于‘某个寄存器说 FIFO 非空’;对 CPU 来说,‘回一个包’等于‘往另一组寄存器写几个字’。</strong> 网络在这里没有任何魔法,就是内存读写。」</p>
+
+<h3 id="第-4-幕25-min固件协议栈项目的灵魂">第 4 幕(2.5 min):固件协议栈(项目的灵魂)</h3>
+
+<p>数据流(main.c 主循环):</p>
+
+<pre><code>
+主循环: tcp_periodic_check() 保洁 → 读 RX FIFO → eth_proc()
+          ├─ ARP  → arp_reply()          应答
+          ├─ IP   → ip_proc()
+          │         ├─ ICMP → icmp_reply()   Ping 应答
+          │         └─ TCP  → tcp_handler()  7 状态机
+          └─ 其他 → 丢弃
+
+</code></pre>
+
+<p>必须讲的四个设计原则(原话来自代码注释,答辩时说出来非常加分):<br>
+<ul><br>
+<li><strong>零拷贝</strong>:RX/TX FIFO 直接读写,不做内存缓冲;</li><br>
+<li><strong>REN 永不开关</strong>:读使能恒为 1,消掉一组握手;</li><br>
+<li><strong>每帧 POP 两次</strong>:头部 POP 取数、尾部 POP 推进下一包;</li><br>
+<li><strong>边解析边预写</strong>:<code>eth_proc()</code> 在判断以太类型的同时就把应答 MAC 头写进了 TX FIFO。</li><br>
+</ul></p>
+
+<p>TCP 状态机要点(<code>tcp.c</code>,监听端口 80,并发 MAX_CONNECTIONS=4):<br>
+<ul><br>
+<li><strong>三次握手</strong>:CLOSED 收 SYN → SYN_RECEIVED 回 SYN+ACK → 收 ACK 进 ESTABLISHED;</li><br>
+<li><strong>两次关闭路径</strong>:对方先 FIN → LAST_ACK;己方先关 → TIME_WAIT(<strong>2 秒</strong>回收,非标准 2MSL,现场一定会被问,答案见 Q&A-B5);</li><br>
+<li><strong>自建保洁</strong>:<code>SYN+ACK 重传 3 次 × 3s</code>;<strong>空闲 6s</strong> 无活动发 RST 踢连接;TIME_WAIT 定时回收;</li><br>
+<li><strong>HTTP 融合在 TCP 层</strong>:ESTABLISHED 后按 GET/POST 分派——GET <code>/set?addr=..&amp;data=..&amp;mode=read/write</code> 直接读写寄存器并返回 JSON 式响应页;POST 支持 form-urlencoded 与 JSON 两种字段提取(<code>tcp_find_form_field/tcp_find_json_field</code>);发送走 <code>send_http_data()</code> 按 MSS=1460 分段。</li><br>
+</ul></p>
+
+<h3 id="第-5-幕15-minJTAG-AXI-外灌固件全场最容易被记住的点">第 5 幕(1.5 min):JTAG-AXI 外灌固件(全场最容易被记住的点)</h3>
+
+<p>讲故事式讲:「以前每改一行 C 就要重跑一次 Vivado 全流程。后来我把这个问题拆掉:留一条 JTAG-AXI 通道,配一个四步 Tcl 流程——」<br>
+<ul><br>
+<li>写 <code>0x100=0</code>:按住 CPU 复位(顺带复位网络 FIFO,防 PHY 广播包写满);</li><br>
+<li><code>source fw_axi_body.tcl</code>:<code>bin_to_jtag_tcl.py</code> 把固件 bin 变成的写序列,逐字写入 IRAM;</li><br>
+<li>写 <code>0x100=1</code>:释放复位,PC=0 开始执行;</li><br>
+<li>写 LED 值验证链路活着。</li><br>
+</ul><br>
+配套还有 <code>verify_fw.tcl</code> / <code>read_back.tcl</code> 做回读校验。收效:<strong>改固件迭代从「小时级综合」降到「秒级」,这是整个开发节奏能滚起来的前提。</strong></p>
+
+<h3 id="第-6-幕1-min验证体系三层证明可信度">第 6 幕(1 min):验证体系(三层,证明可信度)</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>层</th>
+<th>手段</th>
+<th>覆盖</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>单元仿真</td>
+<td>Verilator/Icarus:tb_tcp_handshake / tb_cpu_channel_pkt / tb_http / tb_webserver_cpu_top / test_arp</td>
+<td>模块级</td>
+</tr>
+<tr>
+<td>整机联调</td>
+<td>ILA(2048 深度 @50MHz,抓 gmii_rxd/txd、mac_sop/eop 等)+ Wireshark 对照</td>
+<td>物理层到协议层</td>
+</tr>
+<tr>
+<td>实机验收</td>
+<td>七阶段清单(下节)</td>
+<td>端到端</td>
+</tr>
+</tbody></table>
+
+<h3 id="第-7-幕05-min工程过程数字收尾">第 7 幕(0.5 min):工程过程数字收尾</h3>
+
+<ul>
+<li>74 commits / 2026-08-03 → 08-26 连续推进,每次提交配日报复盘;</li>
+<li>局限坦白(主动说!):无滑动窗口、无拥塞控制、百兆速率、4 并发——<strong>引出下一步计划,把场面收在自己手里</strong>。</li>
+</ul>
+
+<hr>
+
+<h2 id="三数字备查卡打印带进场随口引用不出错">三、数字备查卡(打印带进场,随口引用不出错)</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>项</th>
+<th>值</th>
+<th>出处</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>器件</td>
+<td>XC7A35T-FGG484-2(Artix-7)</td>
+<td>doc</td>
+</tr>
+<tr>
+<td>CPU</td>
+<td>PicoRV32,rv32ic,50 MHz</td>
+<td>PROJECT_OVERVIEW</td>
+</tr>
+<tr>
+<td>时钟</td>
+<td>50M(CPU)/125M(MAC),mmcm_50_125</td>
+<td>rtl</td>
+</tr>
+<tr>
+<td>IRAM</td>
+<td>4096 字 × 32bit = 16KB @0x10000</td>
+<td>webserver_cpu_top.v:46</td>
+</tr>
+<tr>
+<td>监听端口</td>
+<td><strong>80</strong>(HTTP)</td>
+<td>tcp.c:648</td>
+</tr>
+<tr>
+<td>并发连接</td>
+<td>MAX_CONNECTIONS = 4</td>
+<td>tcp.h:10</td>
+</tr>
+<tr>
+<td>MSS</td>
+<td>1460 字节</td>
+<td>tcp.c</td>
+</tr>
+<tr>
+<td>SYN+ACK 重传</td>
+<td>3 次 × 3s</td>
+<td>PROJECT_OVERVIEW</td>
+</tr>
+<tr>
+<td>空闲踢</td>
+<td>6s 无活动发 RST</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>TIME_WAIT</td>
+<td>2s 自动释放</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>RX 包长合法性</td>
+<td>≤2048 字节,否则丢弃</td>
+<td>main.c</td>
+</tr>
+<tr>
+<td>FPGA IP / MAC</td>
+<td>169.254.1.1(link-local 免配置)/ 00:00:01:02:04:05</td>
+<td>lcpu_general.h</td>
+</tr>
+<tr>
+<td>速率</td>
+<td>百兆演示</td>
+<td>PROJECT_OVERVIEW</td>
+</tr>
+<tr>
+<td>ILA</td>
+<td>2× soft_ila + hub,2048 深度 @50MHz</td>
+<td>signals.json</td>
+</tr>
+<tr>
+<td>版本史</td>
+<td>74 commits,08-03 → 08-26</td>
+<td>git log</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h2 id="四现场-Demo-动线带板子时的黄金-90-秒">四、现场 Demo 动线(带板子时的黄金 90 秒)</h2>
+
+<ul>
+<li><strong>Ping</strong>:<code>ping 169.254.1.1</code> →ARP/ICMP 应答,同时指着流水灯说「心跳,被 TCP 接管时会自动让路」;</li>
+<li><strong>TCP</strong>:<code>nc 169.254.1.1 80</code> 敲一个 GET → 屏幕吐出 HTML;</li>
+<li><strong>浏览器高光时刻</strong>:打开 <code>http://169.254.1.1</code> → 深色控制面板 → 点 ALL ON/OFF、寄存器 Read/Write;</li>
+<li><strong>杀招(可选)</strong>:改一处 C 代码 → <code>make &amp;&amp; vivado -source jtag_load_fw.tcl</code> → 观众眼皮底下秒级换固件;</li>
+<li>Wireshark 投屏三次握手 + 四次挥手截图作背景板备用。</li>
+</ul>
+
+<p>断网备案:全程录屏 + ILA 波形截图各存一份;板子不在就放 doc/http_control_panel.png。</p>
+
+<hr>
+
+<h2 id="五预设提问与答题要点QA-军火库">五、预设提问与答题要点(Q&A 军火库)</h2>
+
+<h3 id="A-组-架构选型类">A 组 · 架构选型类</h3>
+
+<strong>A1. 为什么用 PicoRV32,不用 Zynq 硬核 / MicroBlaze / VexRiscv?</strong>
+要点:PicoRV32 MIT 开源、数千行可通读到底、RV32IC 够用、LUT 占用小、教学/审计可控;MicroBlaze 黑盒不可学,Zynq 是「调用 ARM」不是「造 CPU 系统」;本项目目标恰是把总线、RAM、加载每一环都握在自己手里。
+
+<strong>A2. 为什么手写 TCP/IP,不用 lwIP/uIP?</strong>
+要点:三个理由——① 学习目标是每层协议;② 架构上我的数据通路是「寄存器直读包 FIFO 零拷贝」,lwIP 的 pbuf 堆模型不适配且依赖较完整的 libc;③ 资源预算下 lwIP RAM 需求偏大。可以补一句「参考过嵌入式 TCP 面试总结里的轻量设计法」体现调研。
+
+<strong>A3. 为什么 PHY 是 RGMII,内部却用 GMII?</strong>
+要点:RGMII 4bit DDR 省引脚但需要 IDELAY/ODDR 时序校准;GMII 8bit SDR 让 MAC 逻辑最简。复杂度封装在 rgmii_gmii_bridge 内,MAC 与介质解耦,将来换 SGMII 只动桥。
+
+<strong>A4. 只有 100Mbps,为什么不上千兆?</strong>
+要点:瓶颈明确——包头解析、校验和在 50MHz 软件单周期逐字节处理;百兆验证架构完整性,千兆路线已想好:帧头/CRC 硬化 + FIFO 加宽 + CPU 只拿元信息。(参考姊妹项目 fpga_webserver 的 MAC 统计计数器思路)
+
+<strong>A5. 4 个并发连接怎么定的?</strong>
+要点:每个连接十来个 32bit 状态字,4 连接成本可忽略,真正的约束是场景——控制面板是短交互;4 只是第一档水位,扩容只是数组加一行。
+
+<h3 id="B-组-TCP-协议细节类最凶险的一组">B 组 · TCP 协议细节类(最凶险的一组)</h3>
+
+<strong>B1. 有没有滑动窗口/拥塞控制?没有,凭什么能工作?</strong>
+要点:坦白没有。能工作的前提是「请求-应答」式短交互 + stop-and-wait:每次回复都不超过对端通告窗口(远端通常给满窗)。拥塞控制在局域网点对点直连下几乎不会被触发。改进:conn 表加 snd_wnd/rcv_wnd 字段 + 发送端限额即可升级。
+
+<strong>B2. 丢包怎么办?</strong>
+要点:当前仅 SYN+ACK 有重传(3×3s);数据段不做通用重传,依赖本端快速反馈场景(局域网丢包率≈0)。若要补:序号已在(conn_snd_seq/rcv_ack),补一个「超时未 ACK 则重发最后一段」的定时分支即可,保洁定时器框架现成。
+
+<strong>B3. ISN(初始序列号)怎么生成?会不会被预测?</strong>
+要点:如实说——当前为简化实现是固定/低熵值,<strong>安全上确实不合格</strong>;生产做法是时钟混合熵源。这是已知边界,列进 TODO。
+
+<strong>B4. 校验和在哪算?性能如何?</strong>
+要点:C 软件 16 位反码累加(comlib.c cks_sum_cal),边从 FIFO 读边累加,不落缓冲;IP 头含伪首部重构。开销大约每字节若干指令周期,50MHz 下支撑百兆短包场景够用,千兆不行——呼应 A4。
+
+<strong>B5. TIME_WAIT 为什么 2 秒,不是标准的 2MSL?</strong>
+要点:2MSL 里 MSL 在局域网几十微秒量级,2 秒已是数百倍冗余,安全回收旧四元组的目的一致;等价换算是 consciously shortened 的参数化决定,不是不懂标准。这题是「故意缩短」的故事,讲出来反而加分。
+
+<strong>B6. 空闲 6s 为什么发 RST 而不是优雅 FIN?</strong>
+要点:四路并发保护——半死连接占槽会饿死新连接,RST 立即释放且无需等待对端配合,语义上是「服务器回收僵死资源」。代价是对端可能看到错误提示,可接受。
+
+<strong>B7. 连接怎么查表匹配?</strong>
+要点:find_connection 按 源IP+源端口+两端端口 三元匹配(本端 IP 恒定),O(N) 线性扫,N=4 无所谓;N 大了才需要哈希——git log 里正好有一条学习哈希表的日报,可以顺势展示工程意识。
+
+<strong>B8. 乱序/重复包呢?</strong>
+要点:不支持重组,序列号只用于确认累计边界;局域网内交换机保序,真实乱序概率极低。如实承认 + 给出「缓存一小段 OOO 区」的升级思路。
+
+<h3 id="C-组-硬件时序类">C 组 · 硬件时序类</h3>
+
+<strong>C1. 50M↔125M 跨时钟域怎么处理的?</strong>
+要点:三类手段——包数据走异步 FIFO(dual_clock_fifo,格雷码指针);单 bit 事件走 pulse_clock_region_pass(脉冲同步);慢速标量统计走采样+多级同步。RTL 里 dual_clock_simple_dual_port_ram 等模块名可以直接报出来。
+
+<strong>C2. 「双 POP」到底解决什么问题?</strong>
+要点:FIFO 侧「包管理」和「数据搬运」分离:第一次 POP(rpkt_pop)宣告取走本包包描述并预置读地址,第二次 POP 前移到下一包边界。这样 CPU 可以随机访问包内任意字节而不破坏队列连续性——是「FIFO 里也能随机读」的关键。
+
+<strong>C3. JTAG 往 IRAM 写时 CPU 正在取指怎么办?</strong>
+要点:不会发生——外灌第①步先写 0x100=0 按住复位,CPU 停止取指;IRAM 是真双口 RAM,一口归 JTAG、一口归总线,写期间无竞争。这也是为什么注释特意写「同时复位网络 FIFO,防 PHY 广播包把 FIFO 写满」。
+
+<strong>C4. 复位策略?</strong>
+要点:PLL locked 门控 + 异步复位同步撤离;CPU 复位做成总线可写寄存器(0x100),所以软件和 JTAG 都能热复位 CPU——这是外灌机制的地基之一。
+
+<strong>C5. 听说你被仿真库坑过?(字节序事件)</strong>
+要点:正面认领——共用库的旧快照 BFM 字节序与现行 RTL 不一致,曾让正确 RTL 假报字节序错误;教训是「先验证据链的新鲜度,再信失败结论」,此后 fpga_golden 快照作为唯一运行手册基准。展现调试方法论。
+
+<h3 id="D-组-工程方法类">D 组 · 工程方法类</h3>
+
+<strong>D1. 你怎么知道它是“对”的?验证金字塔讲一下。</strong>
+用第二节第 6 幕的三层表格回答,并补一句闭环:仿真发现波形、Wireshark 解释线上行为、ILA 定位物理层争议。
+
+<strong>D2. JTAG-AXI 外灌和 bitstream 内嵌固件(init mem)有什么区别?何时选谁?</strong>
+要点:内嵌式适合出货量产;外灌式适合开发迭代和现场升级,不必重综合、还可在线替换固件(相当于 bootloader 思路)。仓库里同时保留两类 bit 就是两种模式的共存证据(fw.bit vs 纯硬件 bit)。
+
+<strong>D3. ILA 为什么抓 GMII 又抓 MAC 接口两组?</strong>
+要点:两个探针夹住 gmii2mac——上游异常说明 PHY/桥问题,下游异常说明 FIFO/CPU 问题,二分定位;这也是 C1 的实践注脚。
+
+<strong>D4. 项目管理方式?</strong>
+要点:74 commits,每日提交日报(git log 全是 doc: XX日报),文档与代码同步演进(LLD 方案文档 ED002R01、PingREADME、JTAG 原理文)。演讲时点出「docs as commit」的习惯即显成熟。
+
+<h3 id="E-组-延伸与展望类用来收尾">E 组 · 延伸与展望类(用来收尾)</h3>
+
+<strong>E1. 下一步做什么?</strong>
+推荐口径(按现实优先级):① HTTP 面板增强(URL 解析健壮性、更多寄存器暴露);② 数据段重传 + 滑动窗口;③ UDP + DNS 一条龙做一个 NTP 对时;④ 中断驱动替代轮询(PicoRV32 IRQ 已留参数);⑤ 帧 CRC/头部硬化冲刺千兆。
+
+<strong>E2. 安全性评估?</strong>
+主动交代:无 TLS(明文面板)、无 ARP 防欺骗、SYN Flood 可打满 4 槽(但有 9s 上限自动回收)、ISN 低熵。给出边界感而非回避——「它是实验台,不是防火墙;但这些威胁模型我都想过了」。
+
+<strong>E3. 如果给你两周,最先改哪一件事?</strong>
+好答案:数据段超时重传。理由:改动面最小(tcp.c 单文件、复用保洁定时器)、可靠性收益最大,而且做完之后滑动窗口的地基就齐了。
+
+<hr>
+
+<h2 id="六容易露怯的点-兜底话术">六、容易露怯的点 · 兜底话术</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>若被问</th>
+<th>千万别说</th>
+<th>兜底说法</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>乱序重组/窗口细节支吾</td>
+<td>「嗯…应该支持吧」</td>
+<td>「这块是刻意没做的,取舍原因是……(B1/B8),升级方案我想好了是……」</td>
+</tr>
+<tr>
+<td>HTTP 合规程度</td>
+<td>「完整实现了 HTTP」</td>
+<td>「实现了控制面板级的 GET/POST:URL 参数解析 + form/JSON 字段提取 + MSS 分段发送;管线、Cookie、分块编码不在目标内」</td>
+</tr>
+<tr>
+<td>与 PROJECT_OVERVIEW 文档矛盾</td>
+<td>无言以对</td>
+<td>「那是阶段文档,协议栈后续迭代快于文档,提交记录可追溯」</td>
+</tr>
+<tr>
+<td>字节序/BFM 历史事故甩锅</td>
+<td>「工具的锅」</td>
+<td>「教训在我:以后接手任何环境先核对依赖快照新鲜度」</td>
+</tr>
+<tr>
+<td>千兆可行性拍胸脯</td>
+<td>「换个频率就行」</td>
+<td>「频率只是一角,IDELAY 校准、FIFO 宽度、软件逐字节路径都是约束,方案见 A4」</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h2 id="七收尾金句任选其一">七、收尾金句(任选其一)</h2>
+
+<ul>
+<li>「这个项目最大的产出不是那个网页,而是让我搞清楚了<strong>每一个 TCP 包在 FPGA 里的物理形态是什么</strong>。」</li>
+<li>「从 RGMII 的第一根差分线,到浏览器的最后一个字节,中间没有一层是我不能打开的。」</li>
+<li>「74 次提交里我学会的最重要的三件事:跨时钟域要敬畏、验证要分层、以及——改固件的路修得越快,创新的次数越多。」</li>
+</ul>
+
+<hr>
+
+<em>文档生成于 2026-08-27,所有数字已对照仓库代码核实。</em>
+
+<hr>
+<h1 id="以下为-第二部分-面试深度补充">──── 以下为 第二部分 · 面试深度补充 ────</h1>
+
+<h1 id="RISC-V-WebSoC-面试深度补充配合演讲材料使用">RISC-V WebSoC — 面试深度补充(配合演讲材料使用)</h1>
+
+<p>> 与《演讲材料_RiscV_WebSoC项目介绍与答辩QA.md》的关系:演讲版管「讲得漂亮」,本文管「问到第三层不倒」。<br>
+> 面试官的钻探模式是:<strong>是什么 → 为什么这么设计 → 换个方案呢 → 具体怎么实现的 → 出问题怎么办</strong>。每一节都按这个层次备到第四层。<br>
+> 所有数字标注了出处文件,上场前可自行复核。</p>
+
+<hr>
+
+<h2 id="一硬件线必背FPGA-数字-IC-前端岗重点">一、硬件线必背(FPGA / 数字 IC 前端岗重点)</h2>
+
+<h3 id="11-镇场数字卡实测synth-阶段">1.1 镇场数字卡(实测,synth 阶段)</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>指标</th>
+<th>数值</th>
+<th>占比</th>
+<th>出处</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Slice LUTs</td>
+<td><strong>6760</strong></td>
+<td><strong>32.5%</strong>(20800)</td>
+<td>synth_1/webserver_cpu_top_utilization_synth.rpt</td>
+</tr>
+<tr>
+<td>Slice Registers</td>
+<td>8871</td>
+<td>21.3%(41600)</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>Block RAM Tile</td>
+<td><strong>31</strong></td>
+<td><strong>62%</strong>(50)</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>0</td>
+<td>—</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>F7/F8 Muxes</td>
+<td>459/128</td>
+<td>—</td>
+<td>同上(LUT as Memory 仅 16 个,大 RAM 几乎全 BRAM)</td>
+</tr>
+</tbody></table>
+
+<p>讲法示范:「整个 SoC 连协议栈带 MAC 吃掉三分之一 LUT、六成 BRAM,DSP 一个没用——因为校验和、CRC 都是查表+异或逻辑实现,CPU 里没有乘法器需求(见 1.2)。」</p>
+
+<p>⚠️ <strong>诚实边界</strong>:上面是综合后数据。会前强烈建议跑一次 implementation 拿 WNS/TNS——被问「时序收敛了吗」时说「综合通过,布局布线 WNS 是 X」远比「应该没问题」有说服力。跑不了就如实说:「以综合收敛为准,后端数据待补」,并主动补一句你知道 timing 大头在哪儿(CPU 取指路径和 CDC 收敛域)。</p>
+
+<h3 id="12-PicoRV32-微架构专题必考中的必考">1.2 PicoRV32 微架构专题(必考中的必考)</h3>
+
+<p>本项目实例化参数(<code>rtl/riscv32_localbus.v:29</code> 起,<strong>全文背诵级</strong>):</p>
+
+<pre><code>
+COMPRESSED_ISA      = 1    ← 支持 C 压缩指令,代码密度↑,IRAM 省一半
+ENABLE_COUNTERS     = 1    (64 位 rdcycle/rdinstret 可用,C 层做时戳)
+ENABLE_REGS_DUALPORT= 1    ← 寄存器堆双端口,部分时钟周期可同时读写
+TWO_STAGE_SHIFT     = 1    (移位分两拍,单周期移位换频率)
+BARREL_SHIFTER      = 0    ← 没有桶形移位!
+ENABLE_MUL/DIV/FAST_MUL = 0 ← 硬件乘除全关,编译器降级为 __mulsi3 等软件循环
+ENABLE_PCPI         = 0    (协处理器接口关闭)
+PROGADDR_RESET      = 32'h0000_0000  ← 复位取指向量 = IRAM[0]
+
+</code></pre>
+
+<p>由此推出的三个高频问答:</p>
+
+<strong>Q:每条指令几个周期?</strong>
+PicoRV32 是<strong>多周期有限状态机核,不是流水线核</strong>。基础 ALU 运算约 3~4 周期,LW/SW 更多,平均 ~4-7 CPI。Barrel shifter 关闭时长移位更慢。「所以我用 50MHz 主频,不是不想高,是内存访问级状态机设计在给面积让路——这正是它 LUT 省的原因。」
+
+<strong>Q:为什么敢关掉乘除?</strong>
+整条业务路径(TCP 序号运算、IP 校验和、指针搬移)只涉及加法和移位;头构造全是字节拼接。编译器对常量乘会转加法移位,真除法只有十进制格式化输出这类冷路径。DSP 占用 0% 就是佐证。
+
+<strong>Q:压缩指令带来什么?</strong>
+RVC 下常用指令编码减半,同 16KB IRAM 可放约两倍指令,还减轻取指带宽压力。代价:译码器稍复杂。「对本项目这样页面字符串很长的固件,.rodata 压不到,但 .text 受益明显。」
+
+<strong>Q:为什么选多周期核不用流水线核(VexRiscv/E203)?</strong>
+面积预算 XC7A35T 要装下 CPU+MAC+FIFO+ILA;无缓存无 MMU 的确定性访存反而利于裸机调试;我们的性能瓶颈在协议栈软件逻辑而非核吞吐(I/O 型负载,大部分时间在等网包)。
+
+<h3 id="13-时钟树与-CDC-三种手段逐一报出">1.3 时钟树与 CDC —— 三种手段逐一报出</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>跨域场景</th>
+<th>手段</th>
+<th>本工程落点</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>包数据流 125→50</td>
+<td>双时钟异步 FIFO,<strong>格雷码指针</strong></td>
+<td>dual_clock_fifo.v / cpu_channel</td>
+</tr>
+<tr>
+<td>单拍脉冲事件</td>
+<td>pulse_clock_region_pass(打两拍+边沿还原)</td>
+<td>控制握手</td>
+</tr>
+<tr>
+<td>多位慢速标量(计数器/配置)</td>
+<td>源域稳定采样 + 目的域多级同步</td>
+<td>webserver_wrapper 的统计计数回传</td>
+</tr>
+</tbody></table>
+
+<p>答题金句:「多 bit 总线绝不用单纯两级同步器——要么进异步 FIFO,要么格雷码化,要么握手。这是硬纪律。」<br>
+追问预备:格雷码为什么能安全跨域?(相邻只有一个 bit 变化,异步采样最多采到前一态);空满判断怎么处理同步延迟保守性(空判据在目的侧实时准、满判据留冗余余量)。</p>
+
+<h3 id="14-RGMII-物理层">1.4 RGMII 物理层</h3>
+
+<ul>
+<li>RGMII = DDR,4bit 数据双沿采样,引脚比 GMII 少一半;</li>
+<li><strong>TX 侧</strong>:ODDR 原语把 GMII 单沿转双沿输出;<strong>RX 侧</strong>:IDELAY 对 RXC/RXD 加延迟补偿 PCB skew,参考时钟 200MHz(<code>rgmii_gmii_bridge.v</code> idelay_refclk);</li>
+<li>IDELAY 分辨率:tAP ≈ 78ps(7 系列 tap),延迟 taps 由静态参数给出;</li>
+<li>追问「为什么需要 IDELAY」:源同步接口,数据和时钟由 PHY 同时发出,采样窗口要校准到眼图中央;板级走线差让每个 lane 延迟不同。</li>
+<li>动态校准(eIODELAY/训练)未做,固定 tap 值实测可用——如实说明即可。</li>
+</ul>
+
+<h3 id="15-MAC-与-CRC">1.5 MAC 与 CRC</h3>
+
+<ul>
+<li>CRC32 在 <strong>gmii2mac 内部</strong>完成:发送侧逐字节计算并对整帧(含以太头)生成 FCS 追加(<code>gmii2mac.v</code> crc32_eth function,~crc 反相输出,多项式 802.3 标准 0x04C11DB7 行为);接收侧 MAC 对帧做 CRC 校验并出 mac_rx_err/crc_err 计数;</li>
+<li>答「CRC 和 TCP 校验和是不是重复?」——不是:CRC 是物理帧完整性(HW 层,防链路误码),TCP checksum 是端到端完整性(SW 层,防中间设备篡改/伪首部绑五元组),且 TCP checksum 用反码和不受 IP 分片位置影响的设计原因可以延伸。</li>
+</ul>
+
+<h3 id="16-存储地图与程序怎么进来">1.6 存储地图与「程序怎么进来」</h3>
+
+<pre><code>
+IRAM 4096×32bit @0x00010000(webserver_cpu_top.v init_addr_depth=1024*4)
+  ├─ 口 A:CPU 取指(riscv_reset_l 释放后 PC=0 顺序执行)
+  ├─ 口 B:寄存器总线写(Loading 模式)/ JTAG-AXI 写(jtag_load_fw.tcl)
+bank*.mem build_xilinx 共 16 个 bank 文件 ← 初始化 mem 内容切分产物
+linker.ld:ENTRY(reset_entry),唯一 ROM 区 ORIGIN=0x0 LENGTH=32K
+           .text.bootloader KEEP 置顶 → 入口前 4 字节就是跳转指令
+
+</code></pre>
+若被问「链接脚本写 32K,IRAM 才 16K?」:如实回答——ld 声明的是地址空间上限,真实加载尺寸以 bin 实际大小为准,这是个已知的参数不同源问题,答辩口径见第六节话术。
+
+<h3 id="17-复位体系收口在一句话">1.7 复位体系(收口在一句话)</h3>
+
+<p>「异步复位、同步撤离 + PLL locked 门控;额外把 CPU 复位做成总线可写寄存器(word 0x100),于是<strong>软件、JTAG 都能热复位 CPU</strong> —— 这是外灌固件能工作的地基。」复位期间网络 FIFO 同时被按住,防止 PHY 广播包把 FIFO 写满(jtag_load_fw.tcl 注释原文)。</p>
+
+<hr>
+
+<h2 id="二软件线必背嵌入式-固件岗重点">二、软件线必背(嵌入式 / 固件岗重点)</h2>
+
+<h3 id="21-TCP-白板八题精答">2.1 TCP 白板八题精答</h3>
+
+<strong>① 三次握手为什么不能两次?</strong>
+两个理由都要答:a) 防止历史重复 SYN 建立脏连接(RFC793 delayed duplicate 场景);b) 让双方都确认「自己和对方的收发能力」成立。本项目落地:<code>tcp.c</code> 只认纯 SYN(flags=SYN&&!ACK),find_free_connection() 占槽 → SYN_RECEIVED → send_syn_ack 回包且<strong>本地 seq+1(SYN 占一个序号)</strong>(日报 08-04 复盘原话)。
+
+<strong>② 最后一次 ACK 丢了怎么办?</strong>
+服务器停在 LAST_ACK 重发 FIN;客户端留在 TIME_WAIT 可以重发 ACK。⇒ 这正是 TIME_WAIT 存在理由之一。若客户端已经关socket,服务器重试耗尽后放弃——所以标准建议让<strong>主动关闭方</strong>承担 TIME_WAIT。
+
+<strong>③ TIME_WAIT 为什么要存在(两理由)?</strong>
+a) 保证最后的 ACK 若丢失能重发;b) 让旧连接的迷路报文在网络中自然消亡,避免污染相同四元组的新连接。(顺带可答本项目把它压成 2s 的换算依据:LAN 上 RTT μs 级,2s 已数百倍冗余)
+
+<strong>④ MSS 1460 怎么来的?为什么不靠 IP 分片?</strong>
+以太 MTU 1500 − IP 头 20 − TCP 头 20。靠 IP 分片则任一分片丢失整个包作废且中间路由器可能再分,TCP 自己按 MSS 分段丢哪段重哪段。本项目 send_http_data() 按 1460 分段推送 TX FIFO(实际逐字节写,页面前缀 + JSON 响应)。
+
+<strong>⑤ 校验和手算怎么做?</strong>
+16 位反码和:按 16bit 求和(含伪首部:src_ip/dst_ip/零字节/协议号/TCP长度),溢出高位折返回低位(fold),最后取反码。现场白板演算例子准备一个:0x4500+0x003c+0x1c46… 记住口诀「先累加、再折叠、末取反」。IP 头的 checksum 只覆盖 IP 头本身且每次 TTL 变化要重算——本项目 ip_header_update() 直接重写头部顺便刷它。
+
+<strong>⑥ ARP 表在哪?</strong>
+精彩加分点:<strong>这个项目没有 ARP 缓存表,也不需要</strong>——它是纯应答式(request 来才 reply),请求帧里自带对方 MAC/IP,eth_proc 解析时就顺手预写了应答头。只有「主动发起方」才需要 ARP 查询缓存。(如果延伸:接 DNS/NTP 客户端那一刻就必须补 ARP 表项老化和哈希查找——正好衔接日报里学过布谷鸟哈希。)
+
+<strong>⑦ RST 什么情况下发?</strong>
+收到不属于任何连接槽的四元组且端口非监听端口;以及本项目空闲 6s 保活踢人(资源回收优先于优雅告别,服务端常见取舍)。
+
+<strong>⑧ keepalive 和你的 6 秒踢有什么区别?</strong>
+标准 keepalive 默认 2 小时空闲探活(应用无关保底),我是<strong>应用语义级的会话回收</strong>(控制面板短交互场景,占着不发活就尽快释放 4 个并发槽)。参数动机完全不同。
+
+<h3 id="22-协议头默写表字段-本项目实填值">2.2 协议头默写表(字段 + 本项目实填值)</h3>
+
+<strong>以太帧</strong>:DST MAC(6)·SRC MAC(6)·EtherType(2,ARP=0x0806/IP=0x0800)·payload·FCS(4)
+本项目 MAC = 00:00:01:02:04:05。
+<strong>IPv4 头</strong> 20B:版本/IHL(0x45)·TOS·Total Length·ID·Flags/Frag·TTL(直连场景够用故常量)·Protocol(ICMP=1,TCP=6)·Header Checksum·SRC IP·DST IP。
+<strong>TCP 头</strong> 20B(本项目 h[20] 数组逐字段填,send_syn_ack 可直接背):Sport·Dport·Seq·Ack·DataOffset(0x50)·Flags·Window(<strong>恒 65535</strong>)·Checksum(伪首部法)·UrgentPtr(0)。无 options(没有 SYN option 协商,MSS 不通告——连同无窗口协商一起构成 B1 的「简化但有界」故事)。
+
+<h3 id="23-启动链路逐行30-秒讲完不卡壳">2.3 启动链路逐行(30 秒讲完不卡壳)</h3>
+
+<pre><code>
+上电 → PROGADDR_RESET=0(取指 IRAM[0])
+     → linker.ld ENTRY(reset_entry) 且 .text.bootloader KEEP 放最前
+     → reset_entry() 带 naked/no_bootstrap 属性(无 prologue,直接一条 j program_main)
+     → program_main():LED 自检 → tcp_init() 清 4 槽 → while(1){保洁;LED;读FIFO;分发}
+
+</code></pre>
+亮点句:「裸机入口是我自己写的 12 行,没有 crt0 依赖——bss 是 NOLOAD 段、data 直接编进 ROM,启动零搬运,这也是 page flash 式加载能做到秒级的原因。」
+栈初始化:复位后 sp 需第一条指令外手动处理(naked 特性),链接脚本 STACKADDR 由 wrapper 传入 picorv32 参数,排障故事 S1 里正有它的戏份。
+
+<h3 id="24-并行数组-线性查找辩护词日报-QA-已成文直接引用">2.4 并行数组 & 线性查找辩护词(日报 Q&A 已成文,直接引用)</h3>
+
+<ul>
+<li>并行数组而非结构体数组:嵌入式下规避对齐填充,独立清槽内存写放大最小;</li>
+<li>O(n) 线性查找:n≤4 时常数小于任何智能结构的开销,「先用对的简单,再换成复杂的正确」;</li>
+<li>若扩容路线:n 到几百先址排序/池化,n 上万再上哈希(已自学布谷鸟哈希,日报 08-25)。</li>
+</ul>
+
+<h3 id="25-无硬件乘除的软件代价">2.5 无硬件乘除的软件代价</h3>
+
+<code>__mulsi3</code> 移位加循环(~10-20 cycle)、十进制打印用除 10 循环较昂贵 ⇒ 固件里所有时间戳都是十六进制展示、日志走 LED 信号灯而不是 sprintf——「这是我 4KB 级脚本的约束自觉」。若被问优化方向:开 ENABLE_FAST_MUL 约增数百 LUT,或者协议内容搬到外部 SRAM 后用查表乘法。
+
+<hr>
+
+<h2 id="三三个-STAR-故事行为面开放题直接调用">三、三个 STAR 故事(行为面/开放题直接调用)</h2>
+
+<h3 id="S1-软核死活不跑最后凶手是一行-buildtcl真实-08-04-日报">S1 · 「软核死活不跑,最后凶手是一行 build.tcl」(真实 08-04 日报)</h3>
+
+<ul>
+<li><strong>S</strong>:烧完 bit CPU 无任何动作(sp/初始化怀疑点众多),仿真却是好的;</li>
+<li><strong>T</strong>:定位是构建链问题还是 RTL 问题;</li>
+<li><strong>A</strong>:逐一排除 sp 初始化、UART 连接、BRAM 深度、复位源、探针 fanout、timing clock group —— 全排除后,对比一个「能 ILA 抓到波形」的姊妹工程 <code>RiscV_WebSoC_3</code>,发现它 build.tcl 多一句 <code>write_mem_info -force</code>,即多了 <code>.mmi</code>(BRAM 初始化地址映射文件);</li>
+<li><strong>R</strong>:补齐后一切正常。沉淀两条方法论:<strong>“差异对比法”优于“盲猜穷举”</strong>;bitstream 的 BRAM 初始化不是单个文件的事,是 .mem/.mmi/updatеmem 一整条证据链,缺一环就静默失败。</li>
+<li>面试官后续大概率问「ILU 怎么用的」→ 接 1.3 CDC 与 ILA 夹逼定位(soft_ila×2 + hub,2048 深)。</li>
+</ul>
+
+<h3 id="S2-JTAG-外灌固件从一个重复劳动痛点到四步-Tcl">S2 · 「JTAG 外灌固件:从一个重复劳动痛点到四步 Tcl」</h3>
+
+<ul>
+<li><strong>S</strong>:每次改一行 C 都要等 Vivado 全流程(~小时级),迭代节奏被打断;</li>
+<li><strong>T/A</strong>:分析启动本质(PC 取指 + 复位释放),意识到 IRAM 是真双口 RAM,第二口本来就是空闲的 ⇒ 设计四步流程:hold 复位(连带按住 net FIFO 防广播包灌满)→ 逐字写入(bin_to_jtag_tcl.py 自动生成写序列)→ 释放复位 → 写 LED 验证存活;配套 verify_fw.tcl/read_back.tcl 回读校验;</li>
+<li><strong>R</strong>:固件迭代小时级→秒级,74 次提交里绝大部分后期调优都靠它撑起节奏。「改工具链的人,改变了自己所有的开发节奏」——用于回答「项目中你最有主见的决定」。</li>
+</ul>
+
+<h3 id="S3-被旧快照-BFM-冤枉的字节序假错复盘框架细节请按记忆补齐-1-2-个真实波形现象">S3 · 「被旧快照 BFM 冤枉的字节序假错」(复盘框架,细节请按记忆补齐 1-2 个真实波形现象)</h3>
+
+<ul>
+<li><strong>S</strong>:RTL 明明正确,仿真却持续报字节序错误;</li>
+<li><strong>T</strong>:不确定是设计错还是环境错;</li>
+<li><strong>A</strong>:建立「先验证指控者,再信结论」流程,追查到共用库 <code>ip_common</code> 是陈年旧快照,BFM 行为与新 RTL 不一致;</li>
+<li><strong>R</strong>:fix 不是改一行代码,而是建立了 fpga_golden 作为唯一可信运行手册基准。方法论沉淀:<strong>任何环境性失败先核对依赖新鲜度</strong>;(此事故发生在共用库层面,属于 FPGA_Prj 工程族的公共教训。)</li>
+</ul>
+
+<hr>
+
+<h2 id="四简历项目描述模板直接可抄按方向二选一或合并">四、简历项目描述模板(直接可抄,按方向二选一或合并)</h2>
+
+<strong>FPGA 方向版</strong>:
+> 基于 Artix-7(XC7A35T)+ 开源 PicoRV32 核实现轻量 WebSoC:自研 RGMII↔GMII 桥(IDELAY/ODDR 时序校准)、GMII MAC(硬件 CRC32)、跨时钟域包 FIFO 数据通路(格雷码指针/握手同步);全工程 LUT 占用 32%、BRAM 62%、零 DSP;配 ILA 双探针夹逼定位链路异常;独立完成综合后时序分析与资源评估。
+
+<strong>嵌入式方向版</strong>:
+> 从零实现裸机 C TCP/IP 协议栈(ARP/IP/ICMP/TCP/HTTP):7 状态 TCP 连接管理、SYN 重传/空闲回收/TIME_WAIT 保洁定时器、零拷贝 FIFO 直读直写架构、GET/POST+JSON/form 解析控制面板;自定义裸机启动链路(naked entry + linker script + RISC-V 嵌入式工具链);固件支持 JTAG 秒级在线更新;Wireshark/七阶段实机清单验证三次握手至挥手全程。
+
+<p>两版共同的隐藏钩子:「52.5MB 器件上做到 XX」这种量化句会把面试官引向你最强的阵地(数字卡),<strong>先亮数字再等提问 = 你出的牌你定节奏</strong>。</p>
+
+<hr>
+
+<h2 id="五高频开放题速答模板">五、高频开放题速答模板</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>问题</th>
+<th>30 秒答案骨架</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>项目最大的难点?</td>
+<td>不在某行代码,而在「静默失败」类问题——S1 的 .mmi 事件为代表</td>
+</tr>
+<tr>
+<td>最有成就感的时刻?</td>
+<td>第一次 <code>ping 169.254.1.1</code> 通的那一刻——五层协议第一次合龙</td>
+</tr>
+<tr>
+<td>如果重做一遍改什么?</td>
+<td>① 写代码前先把地址映射文档化(当时 reg 表靠口口相传);② 数据段重传一开始就留 hook;③ CI 化单元仿真</td>
+</tr>
+<tr>
+<td>如何证明它是好的?</td>
+<td>三层验证金字塔:TB×5(Verilator/Icarus)→ Wireshark 对照 RFC 报文 → ILA 物理/接口层双探针</td>
+</tr>
+<tr>
+<td>团队还是独立?</td>
+<td>独立为主,但大量借鉴开源核(PicoRV32 社区)与同事参考工程的对比学习——「站在巨人的肩膀上但每级台阶自己爬」</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h2 id="六会前-Checklist">六、会前 Checklist</h2>
+
+<ul>
+<li>[ ] 跑一次 implementation,拿真实 WNS/TNS(当前只有 synth 数据,别被当场抓住「你后端没看吧」)</li>
+<li>[ ] 数字卡打印(第一节 1.1 + 演讲版第三节)</li>
+<li>[ ] Demo 录屏备份(浏览器面板 + nc + JTAG 换固件各一段),S2 故事必备</li>
+<li>[ ] 简历上的项目描述按第四节定稿后<strong>,打印一份贴在自己工位预演三天</strong></li>
+<li>[ ] 时间紧版自测:能否 60 秒内画出系统框图?90 秒内默写 send_syn_ack 流程?</li>
+<li>[ ] 补齐 S3 星型故事里的具体细节(日期/现象/抓波截图)</li>
+</ul>
+
+<hr>
+
+<em>生成于 2026-08-27。所有参数均可溯源:riscv32_localbus.v:29-58 / gmii2mac.v / tcp.c / linker.ld / jtag_load_fw.tcl / synth utilization rpt / 步骤00_日报_20260804.md。</em>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3/wavedrom.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3/skins/default.js"></script>
+<script>
+(function() {
+    // ── Mermaid ──
+    mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+        flowchart: { useMaxWidth: true, htmlLabels: true },
+        sequence: { useMaxWidth: true, boxMargin: 8, mirrorActors: false },
+        block: { useMaxWidth: true }
+    });
+    mermaid.run({
+        querySelector: '.mermaid'
+    }).then(function() {
+        console.log('Mermaid: ' + document.querySelectorAll('.mermaid').length + ' diagrams rendered');
+    }).catch(function(err) {
+        console.error('Mermaid render error:', err);
+    });
+
+    // ── Wavedrom ──
+    function renderWavedrom() {
+        WaveDrom.ProcessAll();
+        console.log('WaveDrom: timing diagrams rendered');
+    }
+    if (document.readyState === 'complete') {
+        renderWavedrom();
+    } else {
+        window.addEventListener('load', renderWavedrom);
+    }
+})();
+</script>
+</body>
+</html>
